@@ -105,7 +105,7 @@ re_evaluate_assignments() {
             explore|research) model="opencode/nemotron-3-ultra-free" ;;
             design) model="opencode/mimo-v2.5-free" ;;
             spec|tasks|archive) model="opencode/ling-3.0-flash-fin-free" ;;
-            apply) model="opencode/big-pickle" ;;
+            apply) model="opencode/mimo-v2.5-free" ;;
             verify) model="opencode/nemotron-3.5-lightning-free" ;;
         esac
         

@@ -31,15 +31,15 @@ select_model_for_role() {
     local max_tier=$2
 
     case $role in
-        orchestrator) candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3-ultra-free" "opencode/big-pickle") ;;
-        explore)      candidates=("opencode/nemotron-3-ultra-free" "opencode/mimo-v2.5-free" "opencode/big-pickle") ;;
-        design)       candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3-ultra-free" "opencode/big-pickle") ;;
+        orchestrator) candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3-ultra-free") ;;
+        explore)      candidates=("opencode/nemotron-3-ultra-free" "opencode/mimo-v2.5-free") ;;
+        design)       candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3-ultra-free") ;;
         spec)         candidates=("opencode/ling-3.0-flash-fin-free" "opencode/nemotron-3.5-lightning-free" "opencode/mimo-v2.5-free") ;;
         tasks)        candidates=("opencode/ling-3.0-flash-fin-free" "opencode/nemotron-3.5-lightning-free" "opencode/mimo-v2.5-free") ;;
-        apply)        candidates=("opencode/big-pickle" "opencode/mimo-v2.5-free" "opencode/nemotron-3.5-lightning-free") ;;
+        apply)        candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3.5-lightning-free" "opencode/big-pickle") ;;
         verify)       candidates=("opencode/nemotron-3.5-lightning-free" "opencode/nemotron-3-ultra-free" "opencode/ling-3.0-flash-fin-free") ;;
         archive)      candidates=("opencode/ling-3.0-flash-fin-free" "opencode/nemotron-3.5-lightning-free" "opencode/mimo-v2.5-free") ;;
-        research)     candidates=("opencode/nemotron-3-ultra-free" "opencode/mimo-v2.5-free" "opencode/big-pickle") ;;
+        research)     candidates=("opencode/nemotron-3-ultra-free" "opencode/mimo-v2.5-free") ;;
     esac
 
     for model in "${candidates[@]}"; do

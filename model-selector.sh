@@ -82,26 +82,26 @@ select_best_for_role() {
     # If a model is excluded by tier, we fall through to the next best
     case $role in
         orchestrator)
-            candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3-ultra-free" "opencode/big-pickle")
+            candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3-ultra-free")
             ;;
         explore|research)
-            candidates=("opencode/nemotron-3-ultra-free" "opencode/mimo-v2.5-free" "opencode/big-pickle")
+            candidates=("opencode/nemotron-3-ultra-free" "opencode/mimo-v2.5-free")
             ;;
         design)
-            candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3-ultra-free" "opencode/big-pickle")
+            candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3-ultra-free")
             ;;
         spec|tasks|archive|documentation)
             candidates=("opencode/ling-3.0-flash-fin-free" "opencode/nemotron-3.5-lightning-free" "opencode/mimo-v2.5-free")
             ;;
         apply|code_generation)
-            candidates=("opencode/big-pickle" "opencode/mimo-v2.5-free" "opencode/nemotron-3.5-lightning-free")
+            candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3.5-lightning-free" "opencode/big-pickle")
             ;;
         verify|quick_checks)
             candidates=("opencode/nemotron-3.5-lightning-free" "opencode/nemotron-3-ultra-free" "opencode/ling-3.0-flash-fin-free")
             ;;
         *)
             # Generic: return first available
-            candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3-ultra-free" "opencode/big-pickle")
+            candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3-ultra-free")
             ;;
     esac
     

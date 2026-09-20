@@ -118,21 +118,19 @@
     },
     "opencode/big-pickle": {
       "name": "Big Pickle",
-      "provider": "Unknown (likely DeepSeek infrastructure)",
+      "provider": "Unknown (stealth — community suspects Zhipu AI GLM-4.6)",
       "privacy_tier": "3_model_improvement",
-      "evidence": "OpenCode Zen: 'During its free period, collected data may be used to improve the model.' Unknown provider.",
+      "evidence": "OpenCode Zen: 'During its free period, collected data may be used to improve the model.' Stealth identity.",
       "privacy_url": null,
       "context_window": 200000,
-      "output_limit": 128000,
+      "output_limit": 32000,
       "tool_call": true,
-      "benchmarks": {
-        "swe_atlas_codebase_qna": "50.8%"
-      },
+      "reasoning": true,
+      "benchmarks": {},
       "best_for": [
-        "code_refactoring",
-        "multi_step_execution"
+        "fallback"
       ],
-      "notes": "Stealth model. Beats GPT-5.6-Sol on SWE Atlas. Identity may change without notice. Free during stealth period."
+      "notes": "STEALTH MODEL — identity undisclosed. Use as fallback only when other models hit rate limits. Released Oct 2025. AnyRouter reported 502 errors Aug 2026. No reliable public benchmarks found. Warns user when activated."
     },
     "opencode/muse-spark-1.3-contributor-free": {
       "name": "Muse Spark 1.3 Contributor Free",

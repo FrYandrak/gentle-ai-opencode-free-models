@@ -84,11 +84,11 @@ select_model_for_role() {
     # Role preference order (model IDs)
     local candidates=()
     case $role in
-        orchestrator)  candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3-ultra-free" "opencode/big-pickle") ;;
-        explore)       candidates=("opencode/nemotron-3-ultra-free" "opencode/mimo-v2.5-free" "opencode/big-pickle") ;;
-        design)        candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3-ultra-free" "opencode/big-pickle") ;;
+        orchestrator)  candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3-ultra-free") ;;
+        explore)       candidates=("opencode/nemotron-3-ultra-free" "opencode/mimo-v2.5-free") ;;
+        design)        candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3-ultra-free") ;;
         spec|tasks|archive) candidates=("opencode/ling-3.0-flash-fin-free" "opencode/nemotron-3.5-lightning-free" "opencode/mimo-v2.5-free") ;;
-        apply)         candidates=("opencode/big-pickle" "opencode/mimo-v2.5-free" "opencode/nemotron-3.5-lightning-free") ;;
+        apply)         candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3.5-lightning-free" "opencode/big-pickle") ;;
         verify)        candidates=("opencode/nemotron-3.5-lightning-free" "opencode/nemotron-3-ultra-free" "opencode/ling-3.0-flash-fin-free") ;;
     esac
     
@@ -271,6 +271,9 @@ for i in "${!roles[@]}"; do
     
     if [ "$model" = "NONE" ]; then
         printf "  %-18s ${RED}%-35s %s${NC}\n" "$label" "NO MODEL" "⚠ needs attention"
+    elif [ "$model" = "opencode/big-pickle" ]; then
+        name=$(jq -r ".models[\"$model\"].name // \"$model\"" "$REGISTRY_FILE" 2>/dev/null)
+        printf "  %-18s %-35s ${YELLOW}%s${NC}\n" "$label" "$name" "⚠ stealth fallback"
     else
         name=$(jq -r ".models[\"$model\"].name // \"$model\"" "$REGISTRY_FILE" 2>/dev/null)
         printf "  %-18s %-35s ${GREEN}%s${NC}\n" "$label" "$name" "✓ ready"
