@@ -1,7 +1,7 @@
 {
-  "version": "1.0.0",
-  "last_updated": "2026-09-20T13:13:14+02:00",
-  "source": "OpenCode Zen documentation + provider privacy policies",
+  "version": "2.0.0",
+  "last_updated": "2026-09-20T14:00:00+02:00",
+  "source": "OpenCode Zen API + provider documentation + benchmarks",
   "privacy_tiers": {
     "1_strict": {
       "label": "Strict Privacy",
@@ -25,161 +25,170 @@
     }
   },
   "models": {
+    "opencode/mimo-v2.5-free": {
+      "name": "MiMo-V2.5 Free",
+      "provider": "Xiaomi",
+      "privacy_tier": "3_model_improvement",
+      "evidence": "OpenCode Zen: 'During its free period, collected data may be used to improve the model.'",
+      "privacy_url": "https://mimo.xiaomi.com/legal/privacy-policy",
+      "context_window": 1000000,
+      "output_limit": 128000,
+      "tool_call": true,
+      "benchmarks": {
+        "livecodebench": "81.5%",
+        "swe_bench_verified": "71.0%",
+        "mmlu_pro": "82.9%",
+        "terminal_bench": "65.8%"
+      },
+      "best_for": [
+        "orchestrator",
+        "design",
+        "coding_agents",
+        "multimodal_tasks"
+      ],
+      "notes": "Native multimodal (text/image/video/audio). Best token efficiency — 50% fewer tokens than Muse Spark for same tasks."
+    },
     "opencode/nemotron-3-ultra-free": {
       "name": "Nemotron 3 Ultra Free",
       "provider": "NVIDIA",
       "privacy_tier": "2_anonymous_improvement",
-      "evidence": "Trial use only. Logged for improvement but not linked to identity. NVIDIA states: 'not designed to derive insights from personal data'.",
-      "privacy_url": "https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Base-BF16/blob/main/privacy.md",
+      "evidence": "Trial use only. Logged for improvement but not linked to identity. NVIDIA: 'not designed to derive insights from personal data'.",
+      "privacy_url": "https://catalog.ngc.nvidia.com/orgs/nim/nvidia/models/nemotron-3-ultra",
       "context_window": 1000000,
-      "output_limit": 131072,
+      "output_limit": 32000,
       "tool_call": true,
+      "benchmarks": {
+        "swe_bench_verified": "71.9%",
+        "pinchbench": "90.0%",
+        "livecodebench_v6": "89.0%",
+        "ifbench": "81.7%"
+      },
       "best_for": [
         "explore",
         "research",
+        "orchestration",
         "large_codebase_analysis"
-      ]
+      ],
+      "notes": "5x faster throughput than comparable models. Excellent instruction following."
     },
     "opencode/nemotron-3.5-lightning-free": {
       "name": "Nemotron 3.5 Lightning Free",
       "provider": "NVIDIA",
       "privacy_tier": "2_anonymous_improvement",
-      "evidence": "Trial use only. Logged for improvement but not linked to identity. NVIDIA states: 'not designed to derive insights from personal data'.",
-      "privacy_url": "https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Base-BF16/blob/main/privacy.md",
-      "context_window": 262144,
-      "output_limit": 131072,
+      "evidence": "Trial use only. Logged for improvement but not linked to identity.",
+      "privacy_url": "https://catalog.ngc.nvidia.com/orgs/nim/nvidia/models/nemotron-3.5-lightning",
+      "context_window": 1000000,
+      "output_limit": 32000,
       "tool_call": true,
+      "benchmarks": {
+        "mmlu_pro": "81.94",
+        "gpqa_diamond": "76.89",
+        "swe_bench_verified": "51.56",
+        "pinchbench": "85.37"
+      },
       "best_for": [
         "verify",
-        "quick_checks"
-      ]
-    },
-    "opencode/mimo-v2.5-free": {
-      "name": "MiMo-V2.5 Free",
-      "provider": "Xiaomi",
-      "privacy_tier": "3_model_improvement",
-      "evidence": "OpenCode Zen: 'During its free period, collected data may be used to improve the model.' Xiaomi direct API says 'won't use without consent' but Zen free tier has no opt-out.",
-      "privacy_url": "https://mimo.xiaomi.com/legal/privacy-policy",
-      "context_window": 262144,
-      "output_limit": 6536,
-      "tool_call": true,
-      "best_for": [
-        "orchestrator",
-        "design"
-      ]
+        "quick_checks",
+        "high_volume_execution",
+        "sub_agent_workhorse"
+      ],
+      "notes": "Fastest in its class. 4x output speed. Runs on consumer GPUs. 3B active params from larger model."
     },
     "opencode/ling-3.0-flash-fin-free": {
       "name": "Ling 3.0 Flash Fin Free",
-      "provider": "Alibaba",
+      "provider": "InclusionAI (Ant Group)",
       "privacy_tier": "3_model_improvement",
-      "evidence": "OpenCode Zen: 'During its free period, collected data may be used to improve the model.' Alibaba direct says 'never use for training' but Zen intermediary policy applies.",
+      "evidence": "OpenCode Zen: 'During its free period, collected data may be used to improve the model.'",
       "privacy_url": "https://help.aliyun.com/en/model-studio/privacy-notice",
       "context_window": 262144,
-      "output_limit": 131072,
+      "output_limit": 262144,
       "tool_call": true,
+      "benchmarks": {
+        "spreadsheetbench": "86.5%",
+        "finance_agent": "69.2%"
+      },
       "best_for": [
         "spec",
         "tasks",
         "archive",
-        "documentation"
-      ]
-    },
-    "opencode/deepseek-v4-flash-free": {
-      "name": "DeepSeek V4 Flash Free",
-      "provider": "DeepSeek",
-      "privacy_tier": "3_model_improvement",
-      "evidence": "DeepSeek privacy policy: 'We may use your Inputs and Outputs to train and improve our models and services.' Opt-out available via settings on direct API, but unclear on Zen free tier.",
-      "privacy_url": "https://cdn.deepseek.com/policies/en-US/deepseek-privacy-policy.html",
-      "context_window": 262144,
-      "output_limit": 131072,
-      "tool_call": true,
-      "best_for": [
-        "apply",
-        "code_generation"
-      ]
+        "documentation",
+        "finance_workflows"
+      ],
+      "notes": "Finance-focused variant. 5.1B active from 124B total params. Limited public benchmark data."
     },
     "opencode/big-pickle": {
       "name": "Big Pickle",
-      "provider": "Unknown",
+      "provider": "Unknown (likely DeepSeek infrastructure)",
       "privacy_tier": "3_model_improvement",
-      "evidence": "OpenCode Zen: 'During its free period, collected data may be used to improve the model.' Unknown provider, unknown direct policy.",
+      "evidence": "OpenCode Zen: 'During its free period, collected data may be used to improve the model.' Unknown provider.",
       "privacy_url": null,
-      "context_window": 262144,
-      "output_limit": 131072,
+      "context_window": 200000,
+      "output_limit": 128000,
       "tool_call": true,
+      "benchmarks": {
+        "swe_atlas_codebase_qna": "50.8%"
+      },
       "best_for": [
-        "experimental"
-      ]
+        "code_refactoring",
+        "multi_step_execution"
+      ],
+      "notes": "Stealth model. Beats GPT-5.6-Sol on SWE Atlas. Identity may change without notice. Free during stealth period."
     },
     "opencode/muse-spark-1.3-contributor-free": {
       "name": "Muse Spark 1.3 Contributor Free",
-      "provider": "Meta (via OpenCode)",
+      "provider": "Meta",
       "privacy_tier": "4_explicit_training",
-      "evidence": "OpenCode Zen: 'Heavily discounted token pricing in exchange for permission to use your prompts and completions to train future Meta models.' EXPLICIT consent to train Meta models.",
-      "privacy_url": null,
-      "context_window": 262144,
-      "output_limit": 131072,
+      "evidence": "Prompts and completions used to train future Meta models. 95% discount in exchange for training data.",
+      "privacy_url": "https://research.meta.ai/blog/introducing-muse-spark-1-3",
+      "context_window": 1000000,
+      "output_limit": 943000,
       "tool_call": true,
+      "benchmarks": {
+        "mrcr_512k_1m": "98.1%",
+        "terminal_bench": "88.8%",
+        "swe_bench_1.1": "75.4%"
+      },
       "best_for": [
-        "creative_tasks"
-      ]
+        "long_horizon_agentic_tasks",
+        "coding",
+        "long_context_retrieval"
+      ],
+      "notes": "20% fewer tool calls and 25% fewer tokens than v1.2. Best long-context performance. Privacy cost: trains Meta models."
+    },
+    "opencode/deepseek-v4-flash": {
+      "name": "DeepSeek V4 Flash",
+      "provider": "DeepSeek",
+      "privacy_tier": "3_model_improvement",
+      "evidence": "NOT FREE on Zen. Costs $0.14/$0.28 per 1M tokens. Included for reference only.",
+      "privacy_url": "https://cdn.deepseek.com/policies/en-US/deepseek-privacy-policy.html",
+      "context_window": 1000000,
+      "output_limit": 128000,
+      "tool_call": true,
+      "benchmarks": {
+        "mmlu_pro": "86.4",
+        "gpqa_diamond": "88.1",
+        "swe_bench_verified": "79.0%",
+        "livecodebench": "91.6"
+      },
+      "best_for": [],
+      "notes": "NOT FREE. Included for benchmark reference. Excellent coding capabilities."
     },
     "opencode/jev-1.13-free": {
       "name": "JEV 1.13 Free",
-      "provider": "Unknown",
+      "provider": "TypeSafe AI",
       "privacy_tier": "3_model_improvement",
-      "evidence": "No explicit privacy policy found. Assumed same as other Zen free models during free period.",
-      "privacy_url": null,
-      "context_window": 262144,
-      "output_limit": 131072,
-      "tool_call": true,
+      "evidence": "No explicit privacy policy found.",
+      "privacy_url": "https://typesafe.ai/blog/introducing-system-one-models-and-jev",
+      "context_window": 64000,
+      "output_limit": 0,
+      "tool_call": false,
+      "benchmarks": {},
       "best_for": [
-        "backup"
-      ]
-    },
-    "opencode/jev-1.13": {
-      "name": "jev-1.13",
-      "provider": "Unknown",
-      "privacy_tier": "3_model_improvement",
-      "evidence": "Auto-added on 2026-09-20T13:13:14+02:00. Verify privacy policy.",
-      "privacy_url": null,
-      "context_window": 262144,
-      "output_limit": 131072,
-      "tool_call": true,
-      "best_for": []
-    },
-    "opencode/muse-spark-1.2": {
-      "name": "muse-spark-1.2",
-      "provider": "Unknown",
-      "privacy_tier": "3_model_improvement",
-      "evidence": "Auto-added on 2026-09-20T13:13:14+02:00. Verify privacy policy.",
-      "privacy_url": null,
-      "context_window": 262144,
-      "output_limit": 131072,
-      "tool_call": true,
-      "best_for": []
-    },
-    "opencode/muse-spark-1.2-contributor-free": {
-      "name": "muse-spark-1.2-contributor-free",
-      "provider": "Unknown",
-      "privacy_tier": "3_model_improvement",
-      "evidence": "Auto-added on 2026-09-20T13:13:14+02:00. Verify privacy policy.",
-      "privacy_url": null,
-      "context_window": 262144,
-      "output_limit": 131072,
-      "tool_call": true,
-      "best_for": []
-    },
-    "opencode/muse-spark-1.3": {
-      "name": "muse-spark-1.3",
-      "provider": "Unknown",
-      "privacy_tier": "3_model_improvement",
-      "evidence": "Auto-added on 2026-09-20T13:13:14+02:00. Verify privacy policy.",
-      "privacy_url": null,
-      "context_window": 262144,
-      "output_limit": 131072,
-      "tool_call": true,
-      "best_for": []
+        "classification",
+        "routing",
+        "scoring"
+      ],
+      "notes": "NOT a general-purpose LLM. Returns typed decisions (yes/no, multiple-choice, scores) with probabilities. 193x faster than frontier LLMs for structured decisions. Cannot generate text."
     }
   }
 }

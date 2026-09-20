@@ -84,11 +84,11 @@ select_model_for_role() {
     # Role preference order (model IDs)
     local candidates=()
     case $role in
-        orchestrator)  candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3-ultra-free" "opencode/deepseek-v4-flash-free") ;;
-        explore)       candidates=("opencode/nemotron-3-ultra-free" "opencode/mimo-v2.5-free" "opencode/deepseek-v4-flash-free") ;;
-        design)        candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3-ultra-free" "opencode/deepseek-v4-flash-free") ;;
-        spec|tasks|archive) candidates=("opencode/ling-3.0-flash-fin-free" "opencode/nemotron-3.5-lightning-free" "opencode/deepseek-v4-flash-free") ;;
-        apply)         candidates=("opencode/deepseek-v4-flash-free" "opencode/nemotron-3.5-lightning-free" "opencode/ling-3.0-flash-fin-free") ;;
+        orchestrator)  candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3-ultra-free" "opencode/big-pickle") ;;
+        explore)       candidates=("opencode/nemotron-3-ultra-free" "opencode/mimo-v2.5-free" "opencode/big-pickle") ;;
+        design)        candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3-ultra-free" "opencode/big-pickle") ;;
+        spec|tasks|archive) candidates=("opencode/ling-3.0-flash-fin-free" "opencode/nemotron-3.5-lightning-free" "opencode/mimo-v2.5-free") ;;
+        apply)         candidates=("opencode/big-pickle" "opencode/mimo-v2.5-free" "opencode/nemotron-3.5-lightning-free") ;;
         verify)        candidates=("opencode/nemotron-3.5-lightning-free" "opencode/nemotron-3-ultra-free" "opencode/ling-3.0-flash-fin-free") ;;
     esac
     
