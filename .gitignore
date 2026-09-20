@@ -1,0 +1,26 @@
+# Privacy config (user-specific)
+.privacy-config
+
+# Results and snapshots
+results/
+
+# Engram state
+.engram/
+
+# Skill registry cache
+.atl/
+
+# Node modules (if any)
+node_modules/
+
+# GGA config (user-specific)
+.gga
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
