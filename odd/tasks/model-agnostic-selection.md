@@ -38,16 +38,43 @@ from script literals.
 
 ## Tasks
 
-- [ ] T1 Map all selection call sites; inventory `best_for` vocabulary vs role
-      names (explore subagent — delegated 2026-09-22).
-- [ ] T2 Fix on ONE recommended design from T1 (single source; preserves
-      current assignments; deterministic).
-- [ ] T3 Capture baseline: `generate-agent-config.sh` output before refactor.
-- [ ] T4 Implement shared selection + refactor the four scripts.
-- [ ] T5 Verify: `bash -n` all scripts; post-refactor generate output equals
+- [x] T1 Map all selection call sites; inventory `best_for` vocabulary vs role
+      names (explore subagent — delegated 2026-09-22). Evidence: 4 scripts ×
+      call sites catalogued; chains content-identical, structure drifted.
+- [x] T2 Fix on ONE recommended design from T1 (single source; preserves
+      current assignments; deterministic). Evidence: decided design — registry
+      `role_chains`/`role_aliases` + shared `select-role-model.sh`
+      (free-only + `tier <= max_tier` gates, big-pickle chain terminal,
+      head-1 last-resort dropped as provably dead).
+- [x] T3 Capture baseline: `generate-agent-config.sh` output before refactor.
+      Evidence: `/tmp/fmc-baseline/gen-before.json` + `selector-before.txt`
+      captured at tier 3 pre-edit; `.privacy-config` byte-identical (`cmp` OK).
+- [x] T4 Implement shared selection + refactor the four scripts.
+      Evidence: `select-role-model.sh` created; registry gained `role_chains` +
+      `role_aliases`; all four scripts source the lib; `bash -n` all 5 → exit 0.
+- [x] T5 Verify: `bash -n` all scripts; post-refactor generate output equals
       T3 baseline; free-only leak check on registry + snapshot; run
       `daily-check.sh` clean.
-- [ ] T6 Work-unit commit (conventional commit).
+      Evidence: `jq -e empty privacy-tier-registry.json` → exit 4 on valid file
+      (jq `-e` semantics for no-output filter; parse error would be exit 5;
+      `jq empty` → 0); free-only leak count = 0; generate diff vs baseline =
+      IDENTICAL (normalized `generated_at`); role sweep diff vs baseline =
+      IDENTICAL; tier-1 edge → `NONE` via lib (exit 0) and via CLI (`all`
+      shows all-NONE, `role` exits 1 with message); residual `opencode/`
+      literals itemized (registry add/del key construction, free-only fetch
+      greps, big-pickle display/fallback — no role-chain literals remain);
+      `daily-check.sh` full run: SKIPPED (network/mutation); `check-model-changes.sh`:
+      static/syntax only (interactive `read -p` path not forced).
+- [ ] T6 Work-unit commit (conventional commit). — parent to commit.
+
+## Intentional delta
+
+- Tier 1 in `check-model-changes.sh` previously force-fell-back to
+  `opencode/big-pickle` (violating `tier <= max_tier`); after refactor it
+  emits `NONE` (`✗ label: NO MODEL — needs attention`), matching the other
+  three scripts. Tiers 2–4 outputs identical to baseline.
+- Latent, unobservable today: daily-check had no `research` branch (fell to
+  default); after refactor `research` resolves to the explore chain everywhere.
 
 ## Acceptance criteria
 

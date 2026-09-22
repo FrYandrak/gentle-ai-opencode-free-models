@@ -211,5 +211,18 @@
       "best_for": [],
       "notes": "Undocumented Zen id (present on /v1/models but absent from official docs). Free variant of DeepSeek V4 Flash; 200K context (paid has 1M). Tier 4 = unknown-privacy default; reclassify only when official Zen privacy terms for this id appear."
     }
-  }
+  },
+  "role_chains": {
+    "orchestrator": ["opencode/mimo-v2.5-free","opencode/mimo-v2.6-flash-free","opencode/nemotron-3-ultra-free","opencode/big-pickle"],
+    "explore":      ["opencode/nemotron-3-ultra-free","opencode/mimo-v2.5-free","opencode/mimo-v2.6-flash-free","opencode/big-pickle"],
+    "research":     ["opencode/nemotron-3-ultra-free","opencode/mimo-v2.5-free","opencode/mimo-v2.6-flash-free","opencode/big-pickle"],
+    "design":       ["opencode/mimo-v2.5-free","opencode/mimo-v2.6-flash-free","opencode/nemotron-3-ultra-free","opencode/big-pickle"],
+    "spec":         ["opencode/ling-3.0-flash-fin-free","opencode/nemotron-3.5-lightning-free","opencode/mimo-v2.5-free","opencode/mimo-v2.6-flash-free","opencode/big-pickle"],
+    "tasks":        ["opencode/ling-3.0-flash-fin-free","opencode/nemotron-3.5-lightning-free","opencode/mimo-v2.5-free","opencode/mimo-v2.6-flash-free","opencode/big-pickle"],
+    "archive":      ["opencode/ling-3.0-flash-fin-free","opencode/nemotron-3.5-lightning-free","opencode/mimo-v2.5-free","opencode/mimo-v2.6-flash-free","opencode/big-pickle"],
+    "apply":        ["opencode/mimo-v2.5-free","opencode/mimo-v2.6-flash-free","opencode/nemotron-3.5-lightning-free","opencode/big-pickle"],
+    "verify":       ["opencode/nemotron-3.5-lightning-free","opencode/nemotron-3-ultra-free","opencode/ling-3.0-flash-fin-free","opencode/mimo-v2.6-flash-free","opencode/big-pickle"],
+    "default":      ["opencode/mimo-v2.5-free","opencode/mimo-v2.6-flash-free","opencode/nemotron-3-ultra-free","opencode/big-pickle"]
+  },
+  "role_aliases": { "documentation": "spec", "code_generation": "apply", "quick_checks": "verify" }
 }

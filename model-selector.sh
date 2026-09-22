@@ -10,6 +10,9 @@ CONFIG_FILE="$SCRIPT_DIR/.privacy-config"
 REGISTRY_FILE="$SCRIPT_DIR/privacy-tier-registry.json"
 RESULTS_DIR="$SCRIPT_DIR/results"
 
+# Shared registry-driven role selection (load_privacy_tier, select_role_model)
+source "$SCRIPT_DIR/select-role-model.sh"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -29,8 +32,7 @@ if [ ! -f "$CONFIG_FILE" ]; then
     exit 1
 fi
 
-source "$CONFIG_FILE"
-PRIVACY_TIER="$privacy_max_tier"
+load_privacy_tier
 
 if [ -z "$PRIVACY_TIER" ]; then
     echo -e "${RED}Error: Invalid configuration file.${NC}"
@@ -72,66 +74,8 @@ get_model_tier_num() {
 
 # ============================================================
 # Role-based model selection (within privacy tier)
+# — provided by select-role-model.sh (select_role_model)
 # ============================================================
-
-select_best_for_role() {
-    local role=$1
-    local max_tier=$2
-    
-    # Role preferences: model IDs ordered by suitability for each role
-    # If a model is excluded by tier, we fall through to the next best.
-    # Every chain ends with opencode/big-pickle as the designated fallout.
-    case $role in
-        orchestrator)
-            candidates=("opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/nemotron-3-ultra-free" "opencode/big-pickle")
-            ;;
-        explore|research)
-            candidates=("opencode/nemotron-3-ultra-free" "opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/big-pickle")
-            ;;
-        design)
-            candidates=("opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/nemotron-3-ultra-free" "opencode/big-pickle")
-            ;;
-        spec|tasks|archive|documentation)
-            candidates=("opencode/ling-3.0-flash-fin-free" "opencode/nemotron-3.5-lightning-free" "opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/big-pickle")
-            ;;
-        apply|code_generation)
-            candidates=("opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/nemotron-3.5-lightning-free" "opencode/big-pickle")
-            ;;
-        verify|quick_checks)
-            candidates=("opencode/nemotron-3.5-lightning-free" "opencode/nemotron-3-ultra-free" "opencode/ling-3.0-flash-fin-free" "opencode/mimo-v2.6-flash-free" "opencode/big-pickle")
-            ;;
-        *)
-            candidates=("opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/nemotron-3-ultra-free" "opencode/big-pickle")
-            ;;
-    esac
-    
-    # Find first candidate that exists and fits within tier
-    for model in "${candidates[@]}"; do
-        local exists=$(get_model_info "$model" "name")
-        local model_tier=$(get_model_tier_num "$model")
-        if [ -n "$exists" ] && [ "$model_tier" -le "$max_tier" ] 2>/dev/null; then
-            echo "$model"
-            return 0
-        fi
-    done
-    
-    # Designated fallout: Big Pickle if within tier
-    local bp_tier=$(get_model_tier_num "opencode/big-pickle")
-    if [ -n "$bp_tier" ] && [ "$bp_tier" -le "$max_tier" ] 2>/dev/null; then
-        echo "opencode/big-pickle"
-        return 0
-    fi
-
-    # Last resort: any available model at tier
-    local first_available=$(get_models_at_or_below_tier "$max_tier" | head -1)
-    if [ -n "$first_available" ]; then
-        echo "$first_available"
-        return 0
-    fi
-    
-    echo "NONE"
-    return 1
-}
 
 # ============================================================
 # Output modes
@@ -167,7 +111,7 @@ show_summary() {
     for i in "${!roles[@]}"; do
         local role="${roles[$i]}"
         local label="${role_labels[$i]}"
-        local model=$(select_best_for_role "$role" "$PRIVACY_TIER")
+        local model=$(select_role_model "$role" "$PRIVACY_TIER")
         
         if [ "$model" = "NONE" ]; then
             printf "  │ %-18s │ ${RED}%-40s${NC} │\n" "$label" "NO MODEL AVAILABLE"
@@ -193,7 +137,7 @@ show_machine_output() {
     # Machine-readable output for scripts
     local role=$1
     if [ -n "$role" ]; then
-        local model=$(select_best_for_role "$role" "$PRIVACY_TIER")
+        local model=$(select_role_model "$role" "$PRIVACY_TIER")
         echo "$model"
     else
         # Output all assignments as JSON
@@ -203,7 +147,7 @@ show_machine_output() {
         local roles=("orchestrator" "explore" "design" "spec" "tasks" "apply" "verify" "archive")
         local first=true
         for role in "${roles[@]}"; do
-            local model=$(select_best_for_role "$role" "$PRIVACY_TIER")
+            local model=$(select_role_model "$role" "$PRIVACY_TIER")
             if [ "$first" = true ]; then first=false; else echo ","; fi
             printf "    \"%s\": \"%s\"" "$role" "$model"
         done
@@ -252,10 +196,10 @@ show_excluded() {
 
 show_gentleai_profile() {
     # Output a gentle-ai compatible profile based on privacy tier
-    local orchestrator=$(select_best_for_role "orchestrator" "$PRIVACY_TIER")
-    local explore=$(select_best_for_role "explore" "$PRIVACY_TIER")
-    local apply=$(select_best_for_role "apply" "$PRIVACY_TIER")
-    local verify=$(select_best_for_role "verify" "$PRIVACY_TIER")
+    local orchestrator=$(select_role_model "orchestrator" "$PRIVACY_TIER")
+    local explore=$(select_role_model "explore" "$PRIVACY_TIER")
+    local apply=$(select_role_model "apply" "$PRIVACY_TIER")
+    local verify=$(select_role_model "verify" "$PRIVACY_TIER")
     
     echo "# Gentle-AI Profile (Privacy Tier $PRIVACY_TIER)"
     echo "# Generated by model-selector.sh"
@@ -303,7 +247,7 @@ case "${1:-}" in
             echo -e "${RED}Error: specify a role (orchestrator, explore, design, spec, tasks, apply, verify, archive)${NC}"
             exit 1
         fi
-        model=$(select_best_for_role "$2" "$PRIVACY_TIER")
+        model=$(select_role_model "$2" "$PRIVACY_TIER")
         if [ "$model" = "NONE" ]; then
             echo -e "${RED}No model available for role '$2' at privacy tier $PRIVACY_TIER${NC}"
             exit 1

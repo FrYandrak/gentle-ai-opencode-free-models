@@ -11,6 +11,9 @@ REGISTRY_FILE="$SCRIPT_DIR/privacy-tier-registry.json"
 SNAPSHOT_FILE="$SCRIPT_DIR/results/.model-snapshot.txt"
 CHANGELOG_FILE="$SCRIPT_DIR/results/model-changelog.md"
 
+# Shared registry-driven role selection (load_privacy_tier, select_role_model)
+source "$SCRIPT_DIR/select-role-model.sh"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -84,14 +87,13 @@ re_evaluate_assignments() {
         return
     fi
     
-    source "$CONFIG_FILE"
-    local tier="$privacy_max_tier"
+    load_privacy_tier
+    local tier="$PRIVACY_TIER"
     
     echo ""
     echo -e "${BOLD}Re-evaluated assignments (privacy tier $tier):${NC}"
     echo ""
     
-    # Source the model selector logic
     local roles=("orchestrator" "explore" "design" "spec" "tasks" "apply" "verify" "archive")
     local role_labels=("Orchestrator" "sdd-explore" "sdd-design" "sdd-spec" "sdd-tasks" "sdd-apply" "sdd-verify" "sdd-archive")
     
@@ -99,26 +101,13 @@ re_evaluate_assignments() {
         local role="${roles[$i]}"
         local label="${role_labels[$i]}"
         
-        # Role-based selection: primary first available at tier, Big Pickle fallout
-        local model=""
-        case $role in
-            orchestrator) candidates=("opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/nemotron-3-ultra-free" "opencode/big-pickle") ;;
-            explore|research) candidates=("opencode/nemotron-3-ultra-free" "opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/big-pickle") ;;
-            design) candidates=("opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/nemotron-3-ultra-free" "opencode/big-pickle") ;;
-            spec|tasks|archive) candidates=("opencode/ling-3.0-flash-fin-free" "opencode/nemotron-3.5-lightning-free" "opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/big-pickle") ;;
-            apply) candidates=("opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/nemotron-3.5-lightning-free" "opencode/big-pickle") ;;
-            verify) candidates=("opencode/nemotron-3.5-lightning-free" "opencode/nemotron-3-ultra-free" "opencode/ling-3.0-flash-fin-free" "opencode/mimo-v2.6-flash-free" "opencode/big-pickle") ;;
-            *) candidates=("opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/nemotron-3-ultra-free" "opencode/big-pickle") ;;
-        esac
-        for m in "${candidates[@]}"; do
-            local t=$(jq -r ".models[\"$m\"].privacy_tier // \"99\"" "$REGISTRY_FILE" 2>/dev/null | cut -d'_' -f1)
-            local n=$(jq -r ".models[\"$m\"].name // \"\"" "$REGISTRY_FILE" 2>/dev/null)
-            if [ -n "$n" ] && [ "$t" -le "$tier" ] 2>/dev/null; then
-                model="$m"
-                break
-            fi
-        done
-        [ -z "$model" ] && model="opencode/big-pickle"
+        # Registry-driven selection: first chain member passing all gates wins
+        local model=$(select_role_model "$role" "$tier")
+        
+        if [ "$model" = "NONE" ]; then
+            echo -e "  ${RED}✗${NC} $label: NO MODEL — needs attention"
+            continue
+        fi
         
         # Check if model still exists in registry
         local exists=$(jq -r ".models[\"$model\"].name // \"\"" "$REGISTRY_FILE" 2>/dev/null)
@@ -289,7 +278,7 @@ re_evaluate_assignments
 
 echo ""
 echo -e "${YELLOW}${BOLD}⚠ Important:${NC}"
-echo "  • New models were added with default privacy tier 3."
+echo "  • New models were added with default privacy tier 4 (unknown = worst case)."
 echo "  • Please verify their actual privacy policies."
 echo "  • Run ./privacy-setup.sh to review and adjust if needed."
 echo "  • If a model you were using was removed, re-run:"

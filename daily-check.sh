@@ -11,6 +11,9 @@ REGISTRY_FILE="$SCRIPT_DIR/privacy-tier-registry.json"
 SNAPSHOT_FILE="$SCRIPT_DIR/results/.daily-snapshot.txt"
 LOG_FILE="$SCRIPT_DIR/results/daily-check.log"
 
+# Shared registry-driven role selection (load_privacy_tier, select_role_model)
+source "$SCRIPT_DIR/select-role-model.sh"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -75,55 +78,9 @@ save_snapshot() {
 }
 
 # ============================================================
-# Model selection based on privacy tier
+# Model selection based on privacy tier — provided by
+# select-role-model.sh (select_role_model)
 # ============================================================
-
-select_model_for_role() {
-    local role=$1
-    local max_tier=$2
-    
-    # Role preference order (model IDs). Every chain ends with Big Pickle fallout.
-    local candidates=()
-    case $role in
-        orchestrator)  candidates=("opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/nemotron-3-ultra-free" "opencode/big-pickle") ;;
-        explore)       candidates=("opencode/nemotron-3-ultra-free" "opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/big-pickle") ;;
-        design)        candidates=("opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/nemotron-3-ultra-free" "opencode/big-pickle") ;;
-        spec|tasks|archive) candidates=("opencode/ling-3.0-flash-fin-free" "opencode/nemotron-3.5-lightning-free" "opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/big-pickle") ;;
-        apply)         candidates=("opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/nemotron-3.5-lightning-free" "opencode/big-pickle") ;;
-        verify)        candidates=("opencode/nemotron-3.5-lightning-free" "opencode/nemotron-3-ultra-free" "opencode/ling-3.0-flash-fin-free" "opencode/mimo-v2.6-flash-free" "opencode/big-pickle") ;;
-        *)             candidates=("opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/nemotron-3-ultra-free" "opencode/big-pickle") ;;
-    esac
-    
-    for model in "${candidates[@]}"; do
-        local exists=$(jq -r ".models[\"$model\"].name // \"\"" "$REGISTRY_FILE" 2>/dev/null)
-        local model_tier=$(jq -r ".models[\"$model\"].privacy_tier | split(\"_\")[0] | tonumber" "$REGISTRY_FILE" 2>/dev/null)
-        
-        if [ -n "$exists" ] && [ "$model_tier" -le "$max_tier" ] 2>/dev/null; then
-            echo "$model"
-            return 0
-        fi
-    done
-    
-    # Designated fallout: Big Pickle if within tier
-    local bp_tier=$(jq -r '.models["opencode/big-pickle"].privacy_tier // "99"' "$REGISTRY_FILE" 2>/dev/null | cut -d'_' -f1)
-    if [ -n "$bp_tier" ] && [ "$bp_tier" -le "$max_tier" ] 2>/dev/null; then
-        echo "opencode/big-pickle"
-        return 0
-    fi
-
-    # Last resort: first available model at tier
-    local fallback=$(jq -r ".models | to_entries[] | select(
-        (.value.privacy_tier | split(\"_\")[0] | tonumber) <= $max_tier
-    ) | .key" "$REGISTRY_FILE" 2>/dev/null | head -1)
-    
-    if [ -n "$fallback" ]; then
-        echo "$fallback"
-        return 0
-    fi
-    
-    echo "NONE"
-    return 1
-}
 
 # ============================================================
 # Main daily check
@@ -158,8 +115,7 @@ if [ ! -f "$CONFIG_FILE" ]; then
     fi
 fi
 
-source "$CONFIG_FILE"
-PRIVACY_TIER="$privacy_max_tier"
+load_privacy_tier
 
 echo -e "  Privacy tier: ${CYAN}$PRIVACY_TIER${NC}"
 echo -e "  Checking OpenCode Zen..."
@@ -276,7 +232,7 @@ echo "  ────────────────────────
 for i in "${!roles[@]}"; do
     role="${roles[$i]}"
     label="${role_labels[$i]}"
-    model=$(select_model_for_role "$role" "$PRIVACY_TIER")
+    model=$(select_role_model "$role" "$PRIVACY_TIER")
     
     if [ "$model" = "NONE" ]; then
         printf "  %-18s ${RED}%-35s %s${NC}\n" "$label" "NO MODEL" "⚠ needs attention"
