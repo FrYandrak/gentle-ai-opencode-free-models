@@ -232,7 +232,7 @@ if [ "$live_count" -gt 0 ]; then
                         \"tool_call\": true,
                         \"best_for\": []
                     }" "$REGISTRY_FILE" > "$REGISTRY_FILE.tmp" && mv "$REGISTRY_FILE.tmp" "$REGISTRY_FILE"
-                    echo -e "    ${GREEN}+ Added to registry: $model${NC} (verify privacy tier)"
+                    echo -e "    ${GREEN}+ Added to registry: $model${NC} (default tier 4 — verify privacy to upgrade)"
                 fi
             fi
         done <<< "$added"
