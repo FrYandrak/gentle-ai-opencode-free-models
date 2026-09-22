@@ -30,16 +30,18 @@ select_model_for_role() {
     local role=$1
     local max_tier=$2
 
+    # Every chain ends with opencode/big-pickle as the designated fallout.
     case $role in
-        orchestrator) candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3-ultra-free") ;;
-        explore)      candidates=("opencode/nemotron-3-ultra-free" "opencode/mimo-v2.5-free") ;;
-        design)       candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3-ultra-free") ;;
-        spec)         candidates=("opencode/ling-3.0-flash-fin-free" "opencode/nemotron-3.5-lightning-free" "opencode/mimo-v2.5-free") ;;
-        tasks)        candidates=("opencode/ling-3.0-flash-fin-free" "opencode/nemotron-3.5-lightning-free" "opencode/mimo-v2.5-free") ;;
-        apply)        candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3.5-lightning-free" "opencode/big-pickle") ;;
-        verify)       candidates=("opencode/nemotron-3.5-lightning-free" "opencode/nemotron-3-ultra-free" "opencode/ling-3.0-flash-fin-free") ;;
-        archive)      candidates=("opencode/ling-3.0-flash-fin-free" "opencode/nemotron-3.5-lightning-free" "opencode/mimo-v2.5-free") ;;
-        research)     candidates=("opencode/nemotron-3-ultra-free" "opencode/mimo-v2.5-free") ;;
+        orchestrator) candidates=("opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/nemotron-3-ultra-free" "opencode/big-pickle") ;;
+        explore)      candidates=("opencode/nemotron-3-ultra-free" "opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/big-pickle") ;;
+        design)       candidates=("opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/nemotron-3-ultra-free" "opencode/big-pickle") ;;
+        spec)         candidates=("opencode/ling-3.0-flash-fin-free" "opencode/nemotron-3.5-lightning-free" "opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/big-pickle") ;;
+        tasks)        candidates=("opencode/ling-3.0-flash-fin-free" "opencode/nemotron-3.5-lightning-free" "opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/big-pickle") ;;
+        apply)        candidates=("opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/nemotron-3.5-lightning-free" "opencode/big-pickle") ;;
+        verify)       candidates=("opencode/nemotron-3.5-lightning-free" "opencode/nemotron-3-ultra-free" "opencode/ling-3.0-flash-fin-free" "opencode/mimo-v2.6-flash-free" "opencode/big-pickle") ;;
+        archive)      candidates=("opencode/ling-3.0-flash-fin-free" "opencode/nemotron-3.5-lightning-free" "opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/big-pickle") ;;
+        research)     candidates=("opencode/nemotron-3-ultra-free" "opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/big-pickle") ;;
+        *)            candidates=("opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/nemotron-3-ultra-free" "opencode/big-pickle") ;;
     esac
 
     for model in "${candidates[@]}"; do
@@ -52,7 +54,14 @@ select_model_for_role() {
         fi
     done
 
-    # Fallback: first available model at tier
+    # Designated fallout: Big Pickle if still within privacy tier
+    local bp_tier=$(jq -r '.models["opencode/big-pickle"].privacy_tier // "99"' "$REGISTRY_FILE" 2>/dev/null | cut -d'_' -f1)
+    if [ -n "$bp_tier" ] && [ "$bp_tier" -le "$max_tier" ] 2>/dev/null; then
+        echo "opencode/big-pickle"
+        return 0
+    fi
+
+    # Last resort: first available model at tier
     local fallback=$(jq -r ".models | to_entries[] | select(
         (.value.privacy_tier | split(\"_\")[0] | tonumber) <= $max_tier
     ) | .key" "$REGISTRY_FILE" 2>/dev/null | head -1)
@@ -86,6 +95,7 @@ declare -A AGENT_ROLES=(
 
 # Agent names that exist in opencode.jsonc as sdd-*-free-models
 AGENT_NAMES=(
+    "gentle-orchestrator"
     "sdd-orchestrator-free-models"
     "sdd-explore-free-models"
     "sdd-research-free-models"
@@ -100,21 +110,32 @@ AGENT_NAMES=(
     "sdd-propose-free-models"
 )
 
+# Also emit the top-level default model (used by agents that do not pin one)
+orchestrator_model=$(select_model_for_role "orchestrator" "$TIER")
+if [ -z "$orchestrator_model" ]; then
+    orchestrator_model="opencode/big-pickle"
+fi
+
 # Build JSON output
 echo "{"
 echo "  \"_meta\": {"
 echo "    \"generated_by\": \"generate-agent-config.sh\","
 echo "    \"privacy_tier\": $TIER,"
-echo "    \"generated_at\": \"$(date -Iseconds)\""
+echo "    \"generated_at\": \"$(date -Iseconds)\","
+echo "    \"top_level_model\": \"$orchestrator_model\""
 echo "  },"
 echo "  \"agents\": {"
 
 first=true
 for agent_name in "${AGENT_NAMES[@]}"; do
-    # Extract role suffix (e.g., sdd-explore-free-models → explore)
-    suffix="${agent_name#sdd-}"
-    suffix="${suffix%-free-models}"
-    role="${AGENT_ROLES[$suffix]:-$suffix}"
+    # Extract role suffix (gentle-orchestrator → orchestrator; sdd-explore-free-models → explore)
+    if [ "$agent_name" = "gentle-orchestrator" ]; then
+        role="orchestrator"
+    else
+        suffix="${agent_name#sdd-}"
+        suffix="${suffix%-free-models}"
+        role="${AGENT_ROLES[$suffix]:-$suffix}"
+    fi
 
     model=$(select_model_for_role "$role" "$TIER")
 

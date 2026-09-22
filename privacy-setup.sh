@@ -38,7 +38,7 @@ print_tier_info() {
             echo "  No logging for improvement."
             echo ""
             echo -e "  ${YELLOW}Available models: Nemotron Ultra, Nemotron Lightning${NC}"
-            echo -e "  ${YELLOW}⚠ You lose: MiMo (best reasoning), DeepSeek (best code gen),${NC}"
+            echo -e "  ${YELLOW}⚠ You lose: MiMo (best reasoning),${NC}"
             echo -e "  ${YELLOW}  Ling Flash (fast docs), Big Pickle, Muse Spark${NC}"
             ;;
         2)
@@ -47,7 +47,7 @@ print_tier_info() {
             echo "  No model training."
             echo ""
             echo -e "  ${YELLOW}Available models: Nemotron Ultra, Nemotron Lightning${NC}"
-            echo -e "  ${YELLOW}⚠ You lose: MiMo, DeepSeek, Ling Flash, Big Pickle, Muse Spark${NC}"
+            echo -e "  ${YELLOW}⚠ You lose: MiMo, Ling Flash, Big Pickle, Muse Spark${NC}"
             ;;
         3)
             echo -e "${GREEN}TIER 3 — Model Improvement${NC}"

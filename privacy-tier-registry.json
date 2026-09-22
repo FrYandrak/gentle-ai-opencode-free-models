@@ -1,6 +1,6 @@
 {
   "version": "2.0.0",
-  "last_updated": "2026-09-20T14:00:00+02:00",
+  "last_updated": "2026-09-22T17:57:08+02:00",
   "source": "OpenCode Zen API + provider documentation + benchmarks",
   "privacy_tiers": {
     "1_strict": {
@@ -153,24 +153,6 @@
       ],
       "notes": "20% fewer tool calls and 25% fewer tokens than v1.2. Best long-context performance. Privacy cost: trains Meta models."
     },
-    "opencode/deepseek-v4-flash": {
-      "name": "DeepSeek V4 Flash",
-      "provider": "DeepSeek",
-      "privacy_tier": "3_model_improvement",
-      "evidence": "NOT FREE on Zen. Costs $0.14/$0.28 per 1M tokens. Included for reference only.",
-      "privacy_url": "https://cdn.deepseek.com/policies/en-US/deepseek-privacy-policy.html",
-      "context_window": 1000000,
-      "output_limit": 128000,
-      "tool_call": true,
-      "benchmarks": {
-        "mmlu_pro": "86.4",
-        "gpqa_diamond": "88.1",
-        "swe_bench_verified": "79.0%",
-        "livecodebench": "91.6"
-      },
-      "best_for": [],
-      "notes": "NOT FREE. Included for benchmark reference. Excellent coding capabilities."
-    },
     "opencode/jev-1.13-free": {
       "name": "JEV 1.13 Free",
       "provider": "TypeSafe AI",
@@ -187,6 +169,23 @@
         "scoring"
       ],
       "notes": "NOT a general-purpose LLM. Returns typed decisions (yes/no, multiple-choice, scores) with probabilities. 193x faster than frontier LLMs for structured decisions. Cannot generate text."
+    },
+    "opencode/mimo-v2.6-flash-free": {
+      "name": "MiMo-V2.6 Flash Free",
+      "provider": "Xiaomi",
+      "privacy_tier": "3_model_improvement",
+      "evidence": "OpenCode Zen: 'During its free period, collected data may be used to improve the model.' Same Xiaomi free-period policy as MiMo-V2.5.",
+      "privacy_url": "https://mimo.xiaomi.com/legal/privacy-policy",
+      "context_window": 1000000,
+      "output_limit": 128000,
+      "tool_call": true,
+      "best_for": [
+        "orchestrator",
+        "design",
+        "coding_agents",
+        "fast_reasoning"
+      ],
+      "notes": "Successor flash line to MiMo-V2.5 Free (appeared on Zen 2026-09-22). Public benchmarks not yet collected. Same Xiaomi free-period privacy terms as V2.5."
     }
   }
 }

@@ -46,7 +46,8 @@ fetch_zen_models() {
         return 1
     fi
     
-    # Extract free model IDs (filter for free-tier models)
+    # Extract free model IDs — FREE-ONLY rule: paid models must NEVER enter
+    # the pipeline. Match only ids ending in "-free" or the stealth big-pickle.
     echo "$response" | jq -r '
         if type == "array" then .[]
         elif type == "object" then
@@ -56,7 +57,7 @@ fetch_zen_models() {
         else empty end
         | select(.id != null)
         | .id
-    ' 2>/dev/null | grep -iE "free|big-pickle|muse-spark|jev" | sort || true
+    ' 2>/dev/null | grep -iE -- '-free$|^big-pickle$' | sort || true
 }
 
 # ============================================================
@@ -81,15 +82,16 @@ select_model_for_role() {
     local role=$1
     local max_tier=$2
     
-    # Role preference order (model IDs)
+    # Role preference order (model IDs). Every chain ends with Big Pickle fallout.
     local candidates=()
     case $role in
-        orchestrator)  candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3-ultra-free") ;;
-        explore)       candidates=("opencode/nemotron-3-ultra-free" "opencode/mimo-v2.5-free") ;;
-        design)        candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3-ultra-free") ;;
-        spec|tasks|archive) candidates=("opencode/ling-3.0-flash-fin-free" "opencode/nemotron-3.5-lightning-free" "opencode/mimo-v2.5-free") ;;
-        apply)         candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3.5-lightning-free" "opencode/big-pickle") ;;
-        verify)        candidates=("opencode/nemotron-3.5-lightning-free" "opencode/nemotron-3-ultra-free" "opencode/ling-3.0-flash-fin-free") ;;
+        orchestrator)  candidates=("opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/nemotron-3-ultra-free" "opencode/big-pickle") ;;
+        explore)       candidates=("opencode/nemotron-3-ultra-free" "opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/big-pickle") ;;
+        design)        candidates=("opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/nemotron-3-ultra-free" "opencode/big-pickle") ;;
+        spec|tasks|archive) candidates=("opencode/ling-3.0-flash-fin-free" "opencode/nemotron-3.5-lightning-free" "opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/big-pickle") ;;
+        apply)         candidates=("opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/nemotron-3.5-lightning-free" "opencode/big-pickle") ;;
+        verify)        candidates=("opencode/nemotron-3.5-lightning-free" "opencode/nemotron-3-ultra-free" "opencode/ling-3.0-flash-fin-free" "opencode/mimo-v2.6-flash-free" "opencode/big-pickle") ;;
+        *)             candidates=("opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/nemotron-3-ultra-free" "opencode/big-pickle") ;;
     esac
     
     for model in "${candidates[@]}"; do
@@ -102,7 +104,14 @@ select_model_for_role() {
         fi
     done
     
-    # Fallback: first available model at tier
+    # Designated fallout: Big Pickle if within tier
+    local bp_tier=$(jq -r '.models["opencode/big-pickle"].privacy_tier // "99"' "$REGISTRY_FILE" 2>/dev/null | cut -d'_' -f1)
+    if [ -n "$bp_tier" ] && [ "$bp_tier" -le "$max_tier" ] 2>/dev/null; then
+        echo "opencode/big-pickle"
+        return 0
+    fi
+
+    # Last resort: first available model at tier
     local fallback=$(jq -r ".models | to_entries[] | select(
         (.value.privacy_tier | split(\"_\")[0] | tonumber) <= $max_tier
     ) | .key" "$REGISTRY_FILE" 2>/dev/null | head -1)

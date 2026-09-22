@@ -79,42 +79,50 @@ select_best_for_role() {
     local max_tier=$2
     
     # Role preferences: model IDs ordered by suitability for each role
-    # If a model is excluded by tier, we fall through to the next best
+    # If a model is excluded by tier, we fall through to the next best.
+    # Every chain ends with opencode/big-pickle as the designated fallout.
     case $role in
         orchestrator)
-            candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3-ultra-free")
+            candidates=("opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/nemotron-3-ultra-free" "opencode/big-pickle")
             ;;
         explore|research)
-            candidates=("opencode/nemotron-3-ultra-free" "opencode/mimo-v2.5-free")
+            candidates=("opencode/nemotron-3-ultra-free" "opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/big-pickle")
             ;;
         design)
-            candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3-ultra-free")
+            candidates=("opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/nemotron-3-ultra-free" "opencode/big-pickle")
             ;;
         spec|tasks|archive|documentation)
-            candidates=("opencode/ling-3.0-flash-fin-free" "opencode/nemotron-3.5-lightning-free" "opencode/mimo-v2.5-free")
+            candidates=("opencode/ling-3.0-flash-fin-free" "opencode/nemotron-3.5-lightning-free" "opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/big-pickle")
             ;;
         apply|code_generation)
-            candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3.5-lightning-free" "opencode/big-pickle")
+            candidates=("opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/nemotron-3.5-lightning-free" "opencode/big-pickle")
             ;;
         verify|quick_checks)
-            candidates=("opencode/nemotron-3.5-lightning-free" "opencode/nemotron-3-ultra-free" "opencode/ling-3.0-flash-fin-free")
+            candidates=("opencode/nemotron-3.5-lightning-free" "opencode/nemotron-3-ultra-free" "opencode/ling-3.0-flash-fin-free" "opencode/mimo-v2.6-flash-free" "opencode/big-pickle")
             ;;
         *)
-            # Generic: return first available
-            candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3-ultra-free")
+            candidates=("opencode/mimo-v2.5-free" "opencode/mimo-v2.6-flash-free" "opencode/nemotron-3-ultra-free" "opencode/big-pickle")
             ;;
     esac
     
-    # Find first candidate that fits within tier
+    # Find first candidate that exists and fits within tier
     for model in "${candidates[@]}"; do
+        local exists=$(get_model_info "$model" "name")
         local model_tier=$(get_model_tier_num "$model")
-        if [ "$model_tier" -le "$max_tier" ] 2>/dev/null; then
+        if [ -n "$exists" ] && [ "$model_tier" -le "$max_tier" ] 2>/dev/null; then
             echo "$model"
             return 0
         fi
     done
     
-    # Fallback: return any available model at tier
+    # Designated fallout: Big Pickle if within tier
+    local bp_tier=$(get_model_tier_num "opencode/big-pickle")
+    if [ -n "$bp_tier" ] && [ "$bp_tier" -le "$max_tier" ] 2>/dev/null; then
+        echo "opencode/big-pickle"
+        return 0
+    fi
+
+    # Last resort: any available model at tier
     local first_available=$(get_models_at_or_below_tier "$max_tier" | head -1)
     if [ -n "$first_available" ]; then
         echo "$first_available"

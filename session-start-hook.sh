@@ -27,9 +27,13 @@ fi
 echo "[Gentle-AI] First session of the day — checking models..."
 
 # Run daily check (fetches live models, updates registry)
+# Only stamp last-run on success so a failed check retries next session.
 if [ -f "$DAILY_CHECK" ]; then
-    bash "$DAILY_CHECK"
-    echo "$today" > "$LAST_RUN_FILE"
+    if bash "$DAILY_CHECK"; then
+        echo "$today" > "$LAST_RUN_FILE"
+    else
+        echo "[Gentle-AI] Daily check FAILED — will retry on next session." >&2
+    fi
     echo ""
 fi
 

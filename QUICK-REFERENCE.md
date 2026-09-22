@@ -12,7 +12,7 @@ These models have the strongest privacy guarantees among free options:
 | **Implementation** | `opencode/nemotron-3.5-lightning-free` | Fast, reliable, good privacy |
 | **Verification** | `opencode/nemotron-3.5-lightning-free` | Fast, reliable checks |
 
-> ⚠ At tier 2, you lose MiMo (best reasoning), DeepSeek (best code gen), and Ling Flash (fast docs). Run `./privacy-setup.sh` to adjust if this is too restrictive.
+> ⚠ At tier 2, you lose MiMo (best reasoning) and Ling Flash (fast docs). Run `./privacy-setup.sh` to adjust if this is too restrictive.
 
 ## Privacy Tiers
 
@@ -20,7 +20,7 @@ These models have the strongest privacy guarantees among free options:
 |------|-------|-----------------|
 | 1 | Strict Privacy | ❌ None |
 | 2 | Anonymous Improvement | Nemotron Ultra, Nemotron Lightning |
-| 3 | Model Improvement | MiMo, DeepSeek, Ling Flash, Big Pickle, JEV |
+| 3 | Model Improvement | MiMo, Ling Flash, Big Pickle, JEV |
 | 4 | Accept All | All 8 models (including Muse Spark → Meta training) |
 
 ## Quick Setup
@@ -47,7 +47,6 @@ These models have the strongest privacy guarantees among free options:
 | Nemotron Ultra | ⭐⭐ | ⭐⭐⭐⭐ | 1M | 131K | 2 | Large codebase analysis |
 | Nemotron Lightning | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | 262K | 131K | 2 | Quick verification |
 | Ling Flash | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | 262K | 131K | 3 | Documentation, Tasks |
-| DeepSeek Flash | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | 262K | 131K | 3 | Code generation |
 | Muse Spark | ⭐⭐⭐⭐ | ⭐⭐⭐ | 262K | 131K | 4 ⚠ | Creative tasks |
 
 ## Remember
