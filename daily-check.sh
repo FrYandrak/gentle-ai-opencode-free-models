@@ -216,7 +216,7 @@ if [ "$live_count" -gt 0 ]; then
         echo ""
         echo -e "${YELLOW}Registry will be updated with available models.${NC}"
         
-        # Update registry: add new models with default tier 3
+        # Update registry: new models default to tier 4 (unknown privacy = worst case)
         while IFS= read -r model; do
             if [ -n "$model" ]; then
                 exists=$(jq -r ".models[\"opencode/$model\"].name // \"\"" "$REGISTRY_FILE" 2>/dev/null)
@@ -224,8 +224,8 @@ if [ "$live_count" -gt 0 ]; then
                     jq ".models[\"opencode/$model\"] = {
                         \"name\": \"$model\",
                         \"provider\": \"Unknown\",
-                        \"privacy_tier\": \"3_model_improvement\",
-                        \"evidence\": \"Auto-added on $(date -Iseconds). Verify privacy policy.\",
+                        \"privacy_tier\": \"4_explicit_training\",
+                        \"evidence\": \"UNVERIFIED — auto-added $(date -Iseconds). Default tier 4 per free-only policy: unknown privacy = maximum exposure. Upgrade only after verified privacy evidence.\",
                         \"privacy_url\": null,
                         \"context_window\": 262144,
                         \"output_limit\": 131072,

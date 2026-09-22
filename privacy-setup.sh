@@ -37,7 +37,7 @@ print_tier_info() {
             echo "  No data used for training. Zero-retention."
             echo "  No logging for improvement."
             echo ""
-            echo -e "  ${YELLOW}Available models: Nemotron Ultra, Nemotron Lightning${NC}"
+            echo -e "  ${YELLOW}Available models: None (no free models meet strict privacy)${NC}"
             echo -e "  ${YELLOW}⚠ You lose: MiMo (best reasoning),${NC}"
             echo -e "  ${YELLOW}  Ling Flash (fast docs), Big Pickle, Muse Spark${NC}"
             ;;
@@ -54,8 +54,8 @@ print_tier_info() {
             echo "  Data may be used to improve the model during free period."
             echo "  Not linked to identity."
             echo ""
-            echo -e "  ${YELLOW}Available models: ALL except Muse Spark${NC}"
-            echo -e "  ${YELLOW}⚠ Muse Spark excluded (trains Meta future models with your data)${NC}"
+            echo -e "  ${YELLOW}Available models: all except tier-4 (Muse Spark x2, DeepSeek Free unverified)${NC}"
+            echo -e "  ${YELLOW}⚠ Tier-4 excluded: Muse Spark trains Meta; DeepSeek Free has no privacy info${NC}"
             ;;
         4)
             echo -e "${GREEN}TIER 4 — Accept All${NC}"
@@ -63,8 +63,9 @@ print_tier_info() {
             echo "  You explicitly accept that some providers use your prompts"
             echo "  and completions to train their models."
             echo ""
-            echo -e "  ${YELLOW}Available models: ALL 8 models${NC}"
+            echo -e "  ${YELLOW}Available models: ALL 10 free models${NC}"
             echo -e "  ${YELLOW}⚠ Muse Spark: your data trains future Meta models${NC}"
+            echo -e "  ${YELLOW}⚠ DeepSeek Free: no privacy info — worst-case assumed${NC}"
             ;;
     esac
 }

@@ -250,19 +250,19 @@ echo -e "${BOLD}Updating registry...${NC}"
 # Add new models
 while IFS= read -r model; do
     if [ -n "$model" ]; then
-        # Add with default tier 3 (model improvement) - user should verify
+        # Default tier 4 (unknown privacy = worst case) per free-only policy
         jq ".models[\"opencode/$model\"] = {
             \"name\": \"$model\",
             \"provider\": \"Unknown\",
-            \"privacy_tier\": \"3_model_improvement\",
-            \"evidence\": \"Newly added to OpenCode Zen. Privacy tier needs manual verification.\",
+            \"privacy_tier\": \"4_explicit_training\",
+            \"evidence\": \"UNVERIFIED — added $(date -Iseconds). Default tier 4 per free-only policy: unknown privacy = maximum exposure. Upgrade only after verified privacy evidence.\",
             \"privacy_url\": null,
             \"context_window\": 262144,
             \"output_limit\": 131072,
             \"tool_call\": true,
             \"best_for\": []
         }" "$REGISTRY_FILE" > "$REGISTRY_FILE.tmp" && mv "$REGISTRY_FILE.tmp" "$REGISTRY_FILE"
-        echo -e "  ${GREEN}+ Added: $model${NC} (default tier 3 — verify privacy policy)"
+        echo -e "  ${GREEN}+ Added: $model${NC} (default tier 4 — verify privacy policy to upgrade)"
     fi
 done <<< "$added_to_live"
 

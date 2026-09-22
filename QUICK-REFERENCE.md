@@ -21,7 +21,7 @@ These models have the strongest privacy guarantees among free options:
 | 1 | Strict Privacy | ❌ None |
 | 2 | Anonymous Improvement | Nemotron Ultra, Nemotron Lightning |
 | 3 | Model Improvement | MiMo, Ling Flash, Big Pickle, JEV |
-| 4 | Accept All | All 8 models (including Muse Spark → Meta training) |
+| 4 | Accept All | All 10 free models (Muse Spark → Meta training; DeepSeek Free → no privacy info) |
 
 ## Quick Setup
 
