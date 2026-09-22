@@ -156,8 +156,8 @@
     "opencode/jev-1.13-free": {
       "name": "JEV 1.13 Free",
       "provider": "TypeSafe AI",
-      "privacy_tier": "3_model_improvement",
-      "evidence": "No explicit privacy policy found.",
+      "privacy_tier": "4_explicit_training",
+      "evidence": "UNVERIFIED — no model-specific privacy text; Zen blanket statement is not per-model evidence (user decision 2026-09-22). Unknown privacy = tier 4.",
       "privacy_url": "https://typesafe.ai/blog/introducing-system-one-models-and-jev",
       "context_window": 64000,
       "output_limit": 0,
