@@ -95,6 +95,12 @@ When a new model appears on Zen, it's added with a default tier. You should veri
 - `curl` — API calls to Zen
 - OpenCode with free model agents configured (`sdd-*-free-models`)
 
+## Resources
+
+- Gentle-AI docs: https://github.com/Gentleman-Programming/gentle-ai
+- OpenCode Zen docs: https://opencode.ai/docs/zen/
+- Ecosystem health check: `gentle-ai doctor`
+
 ## Files
 
 ```
@@ -108,3 +114,19 @@ session-start-hook.sh         # Daily automation
 privacy-tier-registry.json    # Model database
 .privacy-config               # Your tier (gitignored)
 ```
+
+## Documentation Map
+
+| Doc | Why it stays |
+|-----|--------------|
+| `README.md` | Entry point for humans |
+| `AGENTS.md` | Agent/verification contract |
+| `QUICK-REFERENCE.md` | Printable command card + model stats |
+| `odd/tasks/advisory-followups.md` | ODD recovery: 4R lineage hashes, burned authority evidence for PR #2 |
+| `odd/tasks/model-comparison.md` | Decision record: model-testing CANCELLED (source of that decision) |
+| `odd/tasks/model-agnostic-selection.md` | ODD recovery: baseline paths, tier-1 NONE vs big-pickle intent, commit evidence |
+| `odd/tasks/quiet-daily-and-mimo-v26.md` | ODD recovery: rollback plan, 4R hashes, error IDs |
+
+`odd/tasks/*` are load-bearing ODD resume documents, not changelogs — do not delete.
+
+`.atl/skill-registry.md` is generated/stale — regenerate via `gentle-ai skill-registry` when needed; do not hand-edit.

@@ -1,5 +1,25 @@
 # Quick Reference: Free Models for Gentle-AI
 
+One-screen command card. Rationale and full details live in `README.md`.
+
+## Core Commands
+
+```bash
+# 1. Privacy tier — check or change (source of truth: .privacy-config)
+./privacy-setup.sh
+grep privacy_max_tier .privacy-config
+
+# 2. Current role → model assignments for your tier
+./model-selector.sh
+
+# 3. On-demand daily report + apply (source session-start-hook.sh first)
+models-apply
+
+# 4. Shared selector lib (sourced by scripts; also usable directly)
+source ./select-role-model.sh && load_privacy_tier \
+  && select_role_model apply "$PRIVACY_TIER"
+```
+
 ## Privacy Tiers
 
 | Tier | Label | Models Available |
@@ -9,31 +29,7 @@
 | 3 | Model Improvement | MiMo, Ling Flash, Big Pickle |
 | 4 | Accept All | All free models (see registry notes) |
 
-Your configured tier is **defined once** in `.privacy-config`
-(`privacy_max_tier`) — scripts load it via `load_privacy_tier`; do not
-hardcode it here.
-
-## Quick Setup
-
-```bash
-# 1. Set your privacy preference (first time only)
-./privacy-setup.sh
-
-# 2. See your model assignments
-./model-selector.sh
-
-# 3. Check for model changes
-./check-model-changes.sh
-
-# 4. On-demand daily report + apply (hook must be sourced)
-models-apply
-```
-
-## How assignment works (model-agnostic)
-
-- Single source of truth: `privacy-tier-registry.json` → `role_chains` / `role_aliases`
-- Shared selector: `select-role-model.sh` (free-only + `tier <= max_tier`, Big Pickle terminal)
-- Scripts that used to hardcode chains now source the lib — catalog changes touch the registry only
+Defined once in `.privacy-config` (`privacy_max_tier`) via `./privacy-setup.sh` — never hardcode a tier number.
 
 ## Model Quick Stats (qualitative notes only — no scoring harness)
 
@@ -46,17 +42,9 @@ models-apply
 | Ling Flash | 3 | Documentation, tasks |
 | Muse Spark | 4 ⚠ | Creative tasks |
 
-## Remember
+## Assignment (model-agnostic)
 
-- All free models support tool calling (required for SDD)
-- Free models are available "for a limited time"
-- **Privacy tiers filter which models you can use** — `./privacy-setup.sh`
-- Check for free model additions with `./check-model-changes.sh`
+- Source of truth: `privacy-tier-registry.json` → `role_chains` / `role_aliases`
+- Shared selector: `select-role-model.sh` (free-only, `tier <= max_tier`, Big Pickle terminal)
+- Scripts source the lib — catalog changes touch the registry only
 - Model-testing harness is **cancelled** (free-token budget)
-
-## Next Steps
-
-1. Confirm privacy tier: `./privacy-setup.sh`
-2. Get model assignments: `./model-selector.sh`
-3. Check for changes: `./check-model-changes.sh`
-4. Daily report + apply on demand: `models-apply`
