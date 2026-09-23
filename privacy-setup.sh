@@ -29,34 +29,88 @@ print_header() {
     echo ""
 }
 
+# ============================================================
+# Registry-derived counts and name lists (one jq per call — no
+# hardcoded model counts or stale name lists)
+# ============================================================
+
+registry_total() {
+    jq '.models | length' "$REGISTRY_FILE" 2>/dev/null || echo 0
+}
+
+_registry_query() {
+    # $1 = comparison (le|gt|eq), $2 = tier number, $3 = jq output template
+    jq -r --arg op "$1" --argjson t "$2" --arg out "$3" '
+        [.models | to_entries[]
+         | ((.value.privacy_tier // "4" | tostring | split("_")[0] | tonumber? // 4)) as $tier
+         | select(
+             if $op == "le" then $tier <= $t
+             elif $op == "gt" then $tier > $t
+             else $tier == $t end)
+         | {tier: $tier, name: (.value.name // .key)}]
+        | sort_by(.tier)
+        | if $out == "count" then length
+          else map(.name) | join(", ") end' "$REGISTRY_FILE" 2>/dev/null
+}
+
+registry_count_le() {
+    _registry_query le "$1" count || echo 0
+}
+
+registry_count_eq() {
+    _registry_query eq "$1" count || echo 0
+}
+
+registry_names_le() {
+    _registry_query le "$1" names
+}
+
+registry_names_gt() {
+    _registry_query gt "$1" names
+}
+
+registry_names_eq() {
+    _registry_query eq "$1" names
+}
+
 print_tier_info() {
     local tier=$1
+    local total avail_names lost_names avail_count tier4_names
+    total=$(registry_total)
+    avail_names=$(registry_names_le "$tier")
+    lost_names=$(registry_names_gt "$tier")
+    avail_count=$(registry_count_le "$tier")
+    tier4_names=$(registry_names_eq 4)
     case $tier in
         1)
             echo -e "${GREEN}TIER 1 — Strict Privacy${NC}"
             echo "  No data used for training. Zero-retention."
             echo "  No logging for improvement."
             echo ""
-            echo -e "  ${YELLOW}Available models: None (no free models meet strict privacy)${NC}"
-            echo -e "  ${YELLOW}⚠ You lose: ALL free models — MiMo (best reasoning),${NC}"
-            echo -e "  ${YELLOW}  Ling Flash, Big Pickle, Muse Spark, DeepSeek Free, JEV${NC}"
+            if [ -z "$avail_names" ]; then
+                echo -e "  ${YELLOW}Available models: None (no free models meet strict privacy)${NC}"
+            else
+                echo -e "  ${YELLOW}Available models: ${avail_names}${NC}"
+            fi
+            echo -e "  ${YELLOW}⚠ You lose: ALL free models — ${lost_names}${NC}"
             ;;
         2)
             echo -e "${GREEN}TIER 2 — Anonymous Improvement Only${NC}"
             echo "  Data logged for service improvement, NOT linked to identity."
             echo "  No model training."
             echo ""
-            echo -e "  ${YELLOW}Available models: Nemotron Ultra, Nemotron Lightning${NC}"
-            echo -e "  ${YELLOW}⚠ You lose: MiMo, Ling Flash, Big Pickle, JEV,${NC}"
-            echo -e "  ${YELLOW}  Muse Spark, DeepSeek Free (tier 3-4 models)${NC}"
+            echo -e "  ${YELLOW}Available models: ${avail_names}${NC}"
+            echo -e "  ${YELLOW}⚠ You lose: ${lost_names} (higher-tier models)${NC}"
             ;;
         3)
             echo -e "${GREEN}TIER 3 — Model Improvement${NC}"
             echo "  Data may be used to improve the model during free period."
             echo "  Not linked to identity."
             echo ""
-            echo -e "  ${YELLOW}Available models: all except tier-4 (Muse Spark x2, DeepSeek Free, JEV)${NC}"
-            echo -e "  ${YELLOW}⚠ Tier-4 excluded: Muse trains Meta; DeepSeek/JEV lack privacy info${NC}"
+            echo -e "  ${YELLOW}Available models: ${avail_count} of ${total} — ${avail_names}${NC}"
+            if [ -n "$lost_names" ]; then
+                echo -e "  ${YELLOW}⚠ Excluded above your tier: ${lost_names}${NC}"
+            fi
             ;;
         4)
             echo -e "${GREEN}TIER 4 — Accept All${NC}"
@@ -64,9 +118,8 @@ print_tier_info() {
             echo "  You explicitly accept that some providers use your prompts"
             echo "  and completions to train their models."
             echo ""
-            echo -e "  ${YELLOW}Available models: ALL 10 free models${NC}"
-            echo -e "  ${YELLOW}⚠ Muse Spark: your data trains future Meta models${NC}"
-            echo -e "  ${YELLOW}⚠ DeepSeek Free / JEV: no model-specific privacy info${NC}"
+            echo -e "  ${YELLOW}Available models: ALL ${total} free models${NC}"
+            echo -e "  ${YELLOW}⚠ Tier-4 models (explicit training or unknown privacy): ${tier4_names}${NC}"
             ;;
     esac
 }
@@ -75,14 +128,14 @@ get_models_for_tier() {
     local max_tier=$1
     local models=()
     
-    # Read registry and filter by tier
+    # Read registry and filter by tier (fields: model_id|tier_num)
     while IFS= read -r line; do
         local model_id=$(echo "$line" | cut -d'|' -f1)
         local tier_num=$(echo "$line" | cut -d'|' -f2)
         if [ "$tier_num" -le "$max_tier" ] 2>/dev/null; then
             models+=("$model_id")
         fi
-    done < <(jq -r '.models | to_entries[] | "\(.value.privacy_tier | split("_")[0])|\(.key)"' "$REGISTRY_FILE" 2>/dev/null | sort -t'|' -k2 -n)
+    done < <(jq -r '.models | to_entries[] | "\(.key)|\(.value.privacy_tier | split("_")[0])"' "$REGISTRY_FILE" 2>/dev/null | sort -t'|' -k2 -n)
     
     printf '%s\n' "${models[@]}"
 }
@@ -103,16 +156,6 @@ version=1.0.0
 EOF
     
     echo -e "${GREEN}✓ Configuration saved to $CONFIG_FILE${NC}"
-}
-
-load_config() {
-    if [ ! -f "$CONFIG_FILE" ]; then
-        return 1
-    fi
-    
-    # Source the config
-    source "$CONFIG_FILE"
-    echo "$privacy_max_tier"
 }
 
 show_current_config() {
@@ -191,7 +234,7 @@ if [ -f "$CONFIG_FILE" ]; then
             echo -e "${BOLD}All models and their privacy details:${NC}"
             echo ""
             jq -r '.models | to_entries[] | 
-                "Model: \(.value.name)\nProvider: \(.value.privacy_tier)\nTier: \(.value.privacy_tier)\nEvidence: \(.value.evidence)\n"' \
+                "Model: \(.value.name)\nProvider: \(.value.provider // "Unknown")\nTier: \(.value.privacy_tier)\nEvidence: \(.value.evidence)\n"' \
                 "$REGISTRY_FILE" 2>/dev/null
             echo ""
             read -p "Press Enter to continue..."
@@ -213,24 +256,40 @@ fi
 # First-time setup / tier selection
 # ============================================================
 
+# Counts and name lists for the menu come from the registry — never hardcoded.
+menu_total=$(registry_total)
+menu_c1=$(registry_count_le 1)
+menu_c2=$(registry_count_le 2)
+menu_c3=$(registry_count_le 3)
+menu_c4=$(registry_count_eq 4)
+
+menu_line() {
+    # Pad by character count (wc -m), not bytes, so UTF-8 glyphs align.
+    local line="$1" width pad
+    width=$(printf '%s' "$line" | wc -m)
+    pad=$((57 - width))
+    [ "$pad" -lt 0 ] && pad=0
+    printf '  │%s%*s│\n' "$line" "$pad" ""
+}
+
 echo -e "${BOLD}Choose your privacy level:${NC}"
 echo ""
 echo "  ┌─────────────────────────────────────────────────────────┐"
-echo "  │  1  Strict Privacy                                      │"
-echo "  │     No data used for training. Zero-retention.          │"
-echo "  │     ⚠ None — no free models (0 of 10)                  │"
-echo "  │                                                         │"
-echo "  │  2  Anonymous Improvement Only                          │"
-echo "  │     Logged for improvement, NOT linked to identity.     │"
-echo "  │     ⚠ Only Nemotron models (2 of 10)                   │"
-echo "  │                                                         │"
-echo "  │  3  Model Improvement (Recommended)                     │"
-echo "  │     Data may improve the model during free period.      │"
-echo "  │     ✓ 6 of 10 — excludes Muse/DeepSeek/JEV             │"
-echo "  │                                                         │"
-echo "  │  4  Accept All                                          │"
-echo "  │     All 10 free models incl. Meta training.             │"
-echo "  │     ⚠ Muse trains Meta; DeepSeek/JEV lack privacy      │"
+menu_line "  1  Strict Privacy"
+menu_line "     No data used for training. Zero-retention."
+menu_line "     ⚠ None — no free models (${menu_c1} of ${menu_total})"
+menu_line ""
+menu_line "  2  Anonymous Improvement Only"
+menu_line "     Logged for improvement, NOT linked to identity."
+menu_line "     ⚠ Only lower-tier models (${menu_c2} of ${menu_total})"
+menu_line ""
+menu_line "  3  Model Improvement (Recommended)"
+menu_line "     Data may improve the model during free period."
+menu_line "     ✓ ${menu_c3} of ${menu_total} — excludes higher-tier models"
+menu_line ""
+menu_line "  4  Accept All"
+menu_line "     All ${menu_total} free models incl. explicit training."
+menu_line "     ⚠ ${menu_c4} tier-4 models may train on your data"
 echo "  └─────────────────────────────────────────────────────────┘"
 echo ""
 read -p "Select privacy tier [1-4]: " tier

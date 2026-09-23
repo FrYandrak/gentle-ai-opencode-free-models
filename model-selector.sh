@@ -134,27 +134,21 @@ show_summary() {
 }
 
 show_machine_output() {
-    # Machine-readable output for scripts
-    local role=$1
-    if [ -n "$role" ]; then
+    # Machine-readable output for scripts: all assignments as JSON.
+    # (No single-role branch: the only caller invokes this with no args.)
+    echo "{"
+    echo "  \"privacy_tier\": $PRIVACY_TIER,"
+    echo "  \"assignments\": {"
+    local roles=("orchestrator" "explore" "design" "spec" "tasks" "apply" "verify" "archive")
+    local first=true
+    for role in "${roles[@]}"; do
         local model=$(select_role_model "$role" "$PRIVACY_TIER")
-        echo "$model"
-    else
-        # Output all assignments as JSON
-        echo "{"
-        echo "  \"privacy_tier\": $PRIVACY_TIER,"
-        echo "  \"assignments\": {"
-        local roles=("orchestrator" "explore" "design" "spec" "tasks" "apply" "verify" "archive")
-        local first=true
-        for role in "${roles[@]}"; do
-            local model=$(select_role_model "$role" "$PRIVACY_TIER")
-            if [ "$first" = true ]; then first=false; else echo ","; fi
-            printf "    \"%s\": \"%s\"" "$role" "$model"
-        done
-        echo ""
-        echo "  }"
-        echo "}"
-    fi
+        if [ "$first" = true ]; then first=false; else echo ","; fi
+        printf "    \"%s\": \"%s\"" "$role" "$model"
+    done
+    echo ""
+    echo "  }"
+    echo "}"
 }
 
 show_list() {
@@ -252,7 +246,6 @@ case "${1:-}" in
             echo -e "${RED}No model available for role '$2' at privacy tier $PRIVACY_TIER${NC}"
             exit 1
         fi
-        name=$(get_model_info "$model" "name")
         echo "$model"
         ;;
     all)

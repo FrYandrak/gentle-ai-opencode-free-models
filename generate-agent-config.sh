@@ -29,17 +29,10 @@ fi
 
 # ─── Generate agent config ──────────────────────────────────────────────────
 
-# Map agent name suffix → role for model selection
+# Map agent name suffix → role for model selection.
+# Only non-identity mappings live here: the ${AGENT_ROLES[$suffix]:-$suffix}
+# fallback already handles every suffix that equals its own role name.
 declare -A AGENT_ROLES=(
-    ["orchestrator"]="orchestrator"
-    ["explore"]="explore"
-    ["research"]="research"
-    ["design"]="design"
-    ["spec"]="spec"
-    ["tasks"]="tasks"
-    ["apply"]="apply"
-    ["verify"]="verify"
-    ["archive"]="archive"
     ["init"]="spec"
     ["onboard"]="orchestrator"
     ["propose"]="design"

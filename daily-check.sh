@@ -78,11 +78,6 @@ save_snapshot() {
 }
 
 # ============================================================
-# Model selection based on privacy tier — provided by
-# select-role-model.sh (select_role_model)
-# ============================================================
-
-# ============================================================
 # Main daily check
 # ============================================================
 
@@ -131,14 +126,14 @@ if [ -z "$live_models" ]; then
     log "WARNING: Could not fetch live models from Zen"
     live_count=0
 else
-    live_count=$(echo "$live_models" | grep -c . || echo "0")
+    live_count=$(echo "$live_models" | grep -c . || true)
 fi
 
 # Load previous snapshot
 prev_snapshot=$(load_snapshot)
 prev_count=0
 if [ -n "$prev_snapshot" ]; then
-    prev_count=$(echo "$prev_snapshot" | grep -c . || echo "0")
+    prev_count=$(echo "$prev_snapshot" | grep -c . || true)
 fi
 
 echo -e "  Live models found: ${CYAN}$live_count${NC}"
@@ -177,6 +172,7 @@ if [ "$live_count" -gt 0 ]; then
             if [ -n "$model" ]; then
                 exists=$(jq -r ".models[\"opencode/$model\"].name // \"\"" "$REGISTRY_FILE" 2>/dev/null)
                 if [ -z "$exists" ]; then
+                    tmp_registry=$(mktemp "${REGISTRY_FILE}.tmp.XXXXXX")
                     jq ".models[\"opencode/$model\"] = {
                         \"name\": \"$model\",
                         \"provider\": \"Unknown\",
@@ -187,7 +183,7 @@ if [ "$live_count" -gt 0 ]; then
                         \"output_limit\": 131072,
                         \"tool_call\": true,
                         \"best_for\": []
-                    }" "$REGISTRY_FILE" > "$REGISTRY_FILE.tmp" && mv "$REGISTRY_FILE.tmp" "$REGISTRY_FILE"
+                    }" "$REGISTRY_FILE" > "$tmp_registry" && mv "$tmp_registry" "$REGISTRY_FILE"
                     echo -e "    ${GREEN}+ Added to registry: $model${NC} (default tier 4 — verify privacy to upgrade)"
                 fi
             fi
@@ -196,13 +192,15 @@ if [ "$live_count" -gt 0 ]; then
         # Remove models no longer on Zen
         while IFS= read -r model; do
             if [ -n "$model" ]; then
-                jq "del(.models[\"opencode/$model\"])" "$REGISTRY_FILE" > "$REGISTRY_FILE.tmp" && mv "$REGISTRY_FILE.tmp" "$REGISTRY_FILE"
+                tmp_registry=$(mktemp "${REGISTRY_FILE}.tmp.XXXXXX")
+                jq "del(.models[\"opencode/$model\"])" "$REGISTRY_FILE" > "$tmp_registry" && mv "$tmp_registry" "$REGISTRY_FILE"
                 echo -e "    ${RED}- Removed from registry: $model${NC}"
             fi
         done <<< "$removed"
         
         # Update timestamp
-        jq ".last_updated = \"$(date -Iseconds)\"" "$REGISTRY_FILE" > "$REGISTRY_FILE.tmp" && mv "$REGISTRY_FILE.tmp" "$REGISTRY_FILE"
+        tmp_registry=$(mktemp "${REGISTRY_FILE}.tmp.XXXXXX")
+        jq ".last_updated = \"$(date -Iseconds)\"" "$REGISTRY_FILE" > "$tmp_registry" && mv "$tmp_registry" "$REGISTRY_FILE"
         
         # Save new snapshot
         save_snapshot "$live_models"
