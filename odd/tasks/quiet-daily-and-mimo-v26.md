@@ -3,7 +3,8 @@
 ## Objective
 
 Stop the first-terminal daily model report from flooding the shell, expose an
-on-demand `models-status` command instead, and stop assigning the broken
+on-demand `models-apply` command instead (renamed from `models-status` after
+PR #1 — the command also writes config), and stop assigning the broken
 `opencode/mimo-v2.5-free` model when `opencode/mimo-v2.6-flash-free` is the
 one OpenCode actually serves.
 
@@ -19,7 +20,7 @@ one OpenCode actually serves.
 
 ## Scope
 
-- IN: quiet hook + `models-status` helper; reorder chains so V2.6 precedes
+- IN: quiet hook + `models-apply` helper (was `models-status`); reorder chains so V2.6 precedes
   V2.5; annotate V2.5 as currently broken; re-apply `opencode.jsonc`; README
   hook docs; record prior T6 hash.
 - OUT: privacy tier changes; removing V2.5 from the free-model pipeline
@@ -35,9 +36,9 @@ one OpenCode actually serves.
 
 - [x] Q1 Create this feature document and Engram mirror.
 - [x] Q2 Silence `session-start-hook.sh`; log detail to
-      `results/session-start.log`; define `models-status` before the
+      `results/session-start.log`; define `models-apply` before the
       once-per-day guard. Evidence: sourced hook stdout/stderr = 0 bytes on
-      success and on already-stamped day; `models-status` prints full report.
+      success and on already-stamped day; `models-apply` (then `models-status`) prints full report.
 - [x] Q3 Reorder `role_chains` so `mimo-v2.6-flash-free` precedes
       `mimo-v2.5-free` when both appear; note V2.5 server errors.
       Evidence: all chains swapped; select_role_model orchestrator/design/
@@ -48,7 +49,7 @@ one OpenCode actually serves.
       mimo-v2.6-flash-free`; opencode.jsonc lines 60/186/216/261/266/311/395
       updated (takes effect next OpenCode restart).
 - [x] Q5 Point README session-hook section at silent behavior +
-      `models-status`.
+      `models-apply`.
 - [x] Q6 Check off T6 and record hash `c6b8973` in
       `odd/tasks/model-agnostic-selection.md`.
 - [x] Q7 Resume bound 4R review `review-47c8fab3bcb43f8d` collect (fresh
@@ -60,12 +61,12 @@ one OpenCode actually serves.
       `gentle-ai.review-acknowledged/v1`, authority `burned`, consumed
       revision `sha256:c288e752…`.
 - [x] Q8 Work-unit commit(s) with verification evidence.
-      Evidence: commit `b7e63f6` on `feat/quiet-daily-mimo-v26`
+      Evidence: commit `b7e63f6` on `feat/quiet-daily-hook`
       (5 files, +182/−29). Focused checks: `bash -n session-start-hook.sh`
-      OK; sourced hook 0-byte success; `models-status` full report;
+      OK; sourced hook 0-byte success; `models-apply` full report;
       `select_role_model` orchestrator/design/apply →
       `opencode/mimo-v2.6-flash-free` tier 3; `jq empty`
-      privacy-tier-registry.json OK. Runtime: `models-status` printed the
+      privacy-tier-registry.json OK. Runtime: `models-apply` printed the
       daily report on demand. Rollback: revert `session-start-hook.sh`,
       `privacy-tier-registry.json`, `README.md`, and the two `odd/tasks/`
       docs in `b7e63f6` without touching unrelated work. Delivery:
@@ -77,7 +78,7 @@ one OpenCode actually serves.
 ## Acceptance criteria
 
 - Opening a new day's first shell prints nothing on success.
-- `models-status` prints the full daily report.
+- `models-apply` prints the full daily report.
 - `select_role_model orchestrator|design|apply` and top-level model are
   `opencode/mimo-v2.6-flash-free` at tier 3.
 - `opencode run --model opencode/mimo-v2.6-flash-free` succeeds.
@@ -88,7 +89,8 @@ one OpenCode actually serves.
   err_396187d8 / err_46609582 / err_ddea9ab1; V2.6 OK).
 - 2026-09-23: Q1–Q7 done. Prior review `review-47c8fab3bcb43f8d` on
   `c6b8973` approved and acknowledged (authority burned).
-- 2026-09-23: Q8 done — commit `b7e63f6` on `feat/quiet-daily-mimo-v26`.
+- 2026-09-23: Q8 done — commit `b7e63f6` on `feat/quiet-daily-hook`
+  (branch later renamed from `feat/quiet-daily-mimo-v26`).
   Feature complete; delivery strategy ask-on-risk / single PR (211 lines).
 - 2026-09-23: RDD assess on `b7e63f6` vs `c6b8973` → risk `high`
   (`session-start-hook.sh` shell_process). Consent granted; 4R review

@@ -3,8 +3,8 @@
 # Quiet daily model sync: runs once per day, full detail goes to
 # results/session-start.log. Success prints nothing; failures go to stderr.
 #
-# On-demand full report (after this file is sourced):
-#   models-status
+# On-demand full report + apply (after this file is sourced):
+#   models-apply
 #
 # Add to your shell profile:
 #   source /home/francesc/projects/free-model-comparison/session-start-hook.sh
@@ -16,7 +16,8 @@ LAST_RUN_FILE="$SCRIPT_DIR/results/.last-daily-run"
 HOOK_LOG="$SCRIPT_DIR/results/session-start.log"
 
 # Defined before the once-per-day guard so it is always available when sourced.
-models-status() {
+# Name reflects behavior: daily report + write opencode.jsonc (not status-only).
+models-apply() {
     bash "$SCRIPT_DIR/daily-check.sh" && bash "$SCRIPT_DIR/apply-model-config.sh"
 }
 

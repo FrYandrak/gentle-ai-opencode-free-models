@@ -35,6 +35,11 @@ No hardcoded model names. The system reads what's available and decides.
 | **3 — Model Improvement** | Data may improve the model during free period. | Most models available |
 | **4 — Accept All** | Including models that train on your data explicitly. | All models, full exposure |
 
+Your active tier is defined once in `.privacy-config` as `privacy_max_tier`
+(set via `./privacy-setup.sh`). Every script loads that value with
+`load_privacy_tier` from `select-role-model.sh` — do not hardcode a tier
+number in docs or scripts.
+
 ### Dynamic Assignment
 
 ```
@@ -58,7 +63,7 @@ Failures still print to stderr. For the full report on demand (after the hook
 is sourced):
 
 ```bash
-models-status
+models-apply
 ```
 
 Add to your `~/.bashrc`:

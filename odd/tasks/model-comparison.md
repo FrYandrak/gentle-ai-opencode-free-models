@@ -11,7 +11,7 @@ Compare free models available through OpenCode Zen to determine optimal assignme
 ## What remains in scope (non-testing)
 
 - Registry-driven, model-agnostic role selection (see `odd/tasks/model-agnostic-selection.md` — done).
-- Quiet daily hook + on-demand `models-status` (see `odd/tasks/quiet-daily-and-mimo-v26.md` — done).
+- Quiet daily hook + on-demand `models-apply` (see `odd/tasks/quiet-daily-and-mimo-v26.md` — done; command later renamed from `models-status`).
 - Passive catalog/privacy notes in `privacy-tier-registry.json`.
 
 ## What was removed
