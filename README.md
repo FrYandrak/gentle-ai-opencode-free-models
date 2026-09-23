@@ -77,8 +77,7 @@ source /path/to/free-model-comparison/session-start-hook.sh
 |--------|---------|
 | `privacy-setup.sh` | Set or change your privacy tier |
 | `model-selector.sh` | Show current assignments for your tier |
-| `daily-check.sh` | Fetch live models, detect changes, update registry |
-| `check-model-changes.sh` | Interactive change detector with re-evaluation |
+| `daily-check.sh` | Fetch live models, detect changes, update registry (add `--interactive` to confirm changes against the registry) |
 | `generate-agent-config.sh` | Generate role→model mapping from tier + registry |
 | `apply-model-config.sh` | Patch `opencode.jsonc` with generated assignments |
 | `session-start-hook.sh` | Orchestrate daily check + config application |
@@ -106,8 +105,7 @@ When a new model appears on Zen, it's added with a default tier. You should veri
 ```
 privacy-setup.sh              # Interactive tier selection
 model-selector.sh             # Role-based model assignment
-daily-check.sh                # Live model sync
-check-model-changes.sh        # Change detection
+daily-check.sh                # Live model sync (--interactive to confirm changes)
 generate-agent-config.sh      # Config generator
 apply-model-config.sh         # OpenCode config patcher
 session-start-hook.sh         # Daily automation

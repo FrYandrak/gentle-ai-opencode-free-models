@@ -1,7 +1,6 @@
 #!/bin/bash
 # select-role-model.sh — shared registry-driven role → model selection.
-# Sourced by model-selector.sh, generate-agent-config.sh, daily-check.sh,
-# and check-model-changes.sh.
+# Sourced by model-selector.sh, generate-agent-config.sh, and daily-check.sh.
 #
 # Contract (all callers run under `set -e`):
 #   - select_role_model ALWAYS returns 0. Failure is signalled ONLY by

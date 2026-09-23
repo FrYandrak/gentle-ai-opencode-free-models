@@ -2,6 +2,10 @@
 # Daily Model Check — Run at start of each gentle-ai session
 # Checks OpenCode Zen for available models, updates registry if changed,
 # and outputs today's model assignments based on user's privacy tier.
+#
+# Usage:
+#   ./daily-check.sh                 # non-interactive (session hook path)
+#   ./daily-check.sh --interactive   # diff vs registry, confirm before write
 
 set -e
 
@@ -10,6 +14,7 @@ CONFIG_FILE="$SCRIPT_DIR/.privacy-config"
 REGISTRY_FILE="$SCRIPT_DIR/privacy-tier-registry.json"
 SNAPSHOT_FILE="$SCRIPT_DIR/results/.daily-snapshot.txt"
 LOG_FILE="$SCRIPT_DIR/results/daily-check.log"
+CHANGELOG_FILE="$SCRIPT_DIR/results/model-changelog.md"
 
 # Shared registry-driven role selection (load_privacy_tier, select_role_model)
 source "$SCRIPT_DIR/select-role-model.sh"
@@ -24,6 +29,26 @@ DIM='\033[2m'
 NC='\033[0m'
 
 mkdir -p "$SCRIPT_DIR/results"
+
+# ─── Mode ───────────────────────────────────────────────────────────────────
+# Plain (default) preserves the exact non-interactive behavior the session
+# hook relies on: snapshot diff, auto-update registry, no prompts.
+INTERACTIVE=false
+for arg in "$@"; do
+    case "$arg" in
+        --interactive)
+            INTERACTIVE=true
+            ;;
+        -h|--help)
+            echo "Usage: $0 [--interactive]"
+            exit 0
+            ;;
+        *)
+            echo -e "${RED}Unknown option: $arg (try --help)${NC}" >&2
+            exit 1
+            ;;
+    esac
+done
 
 # ============================================================
 # Logging
@@ -114,6 +139,27 @@ apply_registry_changes() {
 }
 
 # ============================================================
+# Changelog (interactive mode)
+# ============================================================
+
+append_changelog() {
+    local added=$1 removed=$2
+    local timestamp=$(date -Iseconds)
+    {
+        echo ""
+        echo "## $timestamp"
+        echo ""
+        echo "### Models Added"
+        echo "$added"
+        echo ""
+        echo "### Models Removed"
+        echo "$removed"
+        echo ""
+    } >> "$CHANGELOG_FILE"
+    echo -e "${GREEN}✓ Change log updated: $CHANGELOG_FILE${NC}"
+}
+
+# ============================================================
 # Main daily check
 # ============================================================
 
@@ -169,66 +215,140 @@ else
     live_count=$(echo "$live_models" | grep -c . || true)
 fi
 
-# Load previous snapshot
-prev_snapshot=$(load_snapshot)
-prev_count=0
-if [ -n "$prev_snapshot" ]; then
-    prev_count=$(echo "$prev_snapshot" | grep -c . || true)
-fi
+if [ "$INTERACTIVE" = true ]; then
+    # ── Interactive: diff live list vs the registry (source of truth),
+    # confirm before writing, then re-evaluate the assignments below.
+    # Fetch warnings were already printed by the fetch step; stdout of
+    # fetch_zen_models carries model ids only (no warning pollution).
+    registry_models=$(jq -r '.models | keys[]' <<<"$reg_json" | sed 's|^opencode/||' | sort)
+    registry_count=$(echo "$registry_models" | grep -c . || true)
 
-echo -e "  Live models found: ${CYAN}$live_count${NC}"
-echo -e "  Previous snapshot: ${CYAN}$prev_count${NC}"
-echo ""
+    echo -e "  Live models:     ${CYAN}$live_count${NC}"
+    echo -e "  Registry models: ${CYAN}$registry_count${NC}"
+    echo ""
 
-# Detect changes
-if [ "$live_count" -gt 0 ]; then
-    added=$(comm -13 <(echo "$prev_snapshot" 2>/dev/null || echo "") <(echo "$live_models"))
-    removed=$(comm -23 <(echo "$prev_snapshot" 2>/dev/null || echo "") <(echo "$live_models"))
-    
-    if [ -n "$added" ] || [ -n "$removed" ]; then
-        echo -e "${BOLD}Changes detected:${NC}"
-        
-        if [ -n "$added" ]; then
-            echo -e "${GREEN}  + New models:${NC}"
-            while IFS= read -r m; do
-                [ -n "$m" ] && echo -e "    ${GREEN}+${NC} $m"
-                log "ADDED: $m"
-            done <<< "$added"
+    if [ "$live_count" -gt 0 ]; then
+        added=$(comm -13 <(echo "$registry_models") <(echo "$live_models"))
+        removed=$(comm -23 <(echo "$registry_models") <(echo "$live_models"))
+
+        if [ -z "$added" ] && [ -z "$removed" ]; then
+            echo -e "${GREEN}${BOLD}✓ Registry is current. No changes detected.${NC}"
+            save_snapshot "$live_models"
+        else
+            if [ -n "$added" ]; then
+                echo -e "${GREEN}${BOLD}NEW models detected on OpenCode Zen:${NC}"
+                while IFS= read -r m; do
+                    [ -n "$m" ] && echo -e "  ${GREEN}+${NC} $m"
+                done <<< "$added"
+                echo ""
+            fi
+
+            if [ -n "$removed" ]; then
+                echo -e "${RED}${BOLD}REMOVED models from OpenCode Zen:${NC}"
+                while IFS= read -r m; do
+                    [ -n "$m" ] && echo -e "  ${RED}-${NC} $m"
+                done <<< "$removed"
+                echo ""
+            fi
+
+            echo -e "${BOLD}Changes detected in the free model landscape.${NC}"
+            echo ""
+            read -r -p "Update local registry with these changes? [Y/n]: " confirm || confirm=""
+
+            if [[ "$confirm" =~ ^[nN]$ ]]; then
+                echo -e "${YELLOW}Changes not applied. Re-evaluating current assignments...${NC}"
+            else
+                echo ""
+                echo -e "${BOLD}Updating registry...${NC}"
+                while IFS= read -r m; do
+                    [ -n "$m" ] && log "ADDED: $m"
+                done <<< "$added"
+                while IFS= read -r m; do
+                    [ -n "$m" ] && log "REMOVED: $m"
+                done <<< "$removed"
+
+                apply_registry_changes "$added" "$removed"
+                append_changelog "$added" "$removed"
+                save_snapshot "$live_models"
+                echo ""
+                echo -e "${GREEN}${BOLD}Registry updated.${NC}"
+
+                if [ -n "$added" ]; then
+                    echo ""
+                    echo -e "${YELLOW}${BOLD}⚠ Important:${NC}"
+                    echo "  • New models were added with default privacy tier 4 (unknown = worst case)."
+                    echo "  • Please verify their actual privacy policies."
+                    echo "  • Run ./privacy-setup.sh to review and adjust if needed."
+                    echo "  • If a model you were using was removed, re-run:"
+                    echo "    ./model-selector.sh"
+                fi
+            fi
         fi
-        
-        if [ -n "$removed" ]; then
-            echo -e "${RED}  - Removed models:${NC}"
-            while IFS= read -r m; do
-                [ -n "$m" ] && echo -e "    ${RED}-${NC} $m"
-                log "REMOVED: $m"
+    fi
+else
+    # ── Non-interactive (session hook path): snapshot diff, auto-update.
+
+    # Load previous snapshot
+    prev_snapshot=$(load_snapshot)
+    prev_count=0
+    if [ -n "$prev_snapshot" ]; then
+        prev_count=$(echo "$prev_snapshot" | grep -c . || true)
+    fi
+
+    echo -e "  Live models found: ${CYAN}$live_count${NC}"
+    echo -e "  Previous snapshot: ${CYAN}$prev_count${NC}"
+    echo ""
+
+    # Detect changes
+    if [ "$live_count" -gt 0 ]; then
+        added=$(comm -13 <(echo "$prev_snapshot" 2>/dev/null || echo "") <(echo "$live_models"))
+        removed=$(comm -23 <(echo "$prev_snapshot" 2>/dev/null || echo "") <(echo "$live_models"))
+
+        if [ -n "$added" ] || [ -n "$removed" ]; then
+            echo -e "${BOLD}Changes detected:${NC}"
+
+            if [ -n "$added" ]; then
+                echo -e "${GREEN}  + New models:${NC}"
+                while IFS= read -r m; do
+                    [ -n "$m" ] && echo -e "    ${GREEN}+${NC} $m"
+                    log "ADDED: $m"
+                done <<< "$added"
+            fi
+
+            if [ -n "$removed" ]; then
+                echo -e "${RED}  - Removed models:${NC}"
+                while IFS= read -r m; do
+                    [ -n "$m" ] && echo -e "    ${RED}-${NC} $m"
+                    log "REMOVED: $m"
+                done <<< "$removed"
+            fi
+
+            echo ""
+            echo -e "${YELLOW}Registry will be updated with available models.${NC}"
+
+            # Report only models that are actually new to the registry.
+            added_arr=$(printf '%s' "$added" | jq -Rn '[inputs | select(length > 0)]')
+            while IFS= read -r model; do
+                [ -n "$model" ] && echo -e "    ${GREEN}+ Added to registry: $model${NC} (default tier 4 — verify privacy to upgrade)"
+            done < <(jq -rn --argjson reg "$reg_json" --argjson adds "$added_arr" \
+                '$adds[] | select(($reg.models // {}) | has("opencode/" + .) | not)')
+
+            # Batch: add new, remove gone, stamp timestamp — single jq + one write.
+            apply_registry_changes "$added" "$removed"
+
+            while IFS= read -r model; do
+                [ -n "$model" ] && echo -e "    ${RED}- Removed from registry: $model${NC}"
             done <<< "$removed"
+
+            # Save new snapshot
+            save_snapshot "$live_models"
+
+            echo ""
+        else
+            echo -e "${GREEN}✓ No changes detected. Model list is current.${NC}"
+            # Still update snapshot timestamp
+            [ "$live_count" -gt 0 ] && save_snapshot "$live_models"
         fi
-        
-        echo ""
-        echo -e "${YELLOW}Registry will be updated with available models.${NC}"
-        
-        # Report only models that are actually new to the registry.
-        added_arr=$(printf '%s' "$added" | jq -Rn '[inputs | select(length > 0)]')
-        while IFS= read -r model; do
-            [ -n "$model" ] && echo -e "    ${GREEN}+ Added to registry: $model${NC} (default tier 4 — verify privacy to upgrade)"
-        done < <(jq -rn --argjson reg "$reg_json" --argjson adds "$added_arr" \
-            '$adds[] | select(($reg.models // {}) | has("opencode/" + .) | not)')
-        
-        # Batch: add new, remove gone, stamp timestamp — single jq + one write.
-        apply_registry_changes "$added" "$removed"
-        
-        while IFS= read -r model; do
-            [ -n "$model" ] && echo -e "    ${RED}- Removed from registry: $model${NC}"
-        done <<< "$removed"
-        
-        # Save new snapshot
-        save_snapshot "$live_models"
-        
-        echo ""
-    else
-        echo -e "${GREEN}✓ No changes detected. Model list is current.${NC}"
-        # Still update snapshot timestamp
-        [ "$live_count" -gt 0 ] && save_snapshot "$live_models"
     fi
 fi
 
