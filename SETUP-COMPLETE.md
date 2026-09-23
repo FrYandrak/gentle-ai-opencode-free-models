@@ -15,56 +15,30 @@
 - ✅ ODD workflow structure created
 
 ### 3. Documentation Ready
-- ✅ `README.md` - Complete model comparison guide
+- ✅ `README.md` - Model assignment guide
 - ✅ `QUICK-REFERENCE.md` - Fast lookup card
-- ✅ `COMPARISON-MATRIX.md` - Scoring template
 - ✅ `SETUP-COMPLETE.md` - This file
 
-### 4. Testing Infrastructure
-- ✅ `test-models.sh` - Automated testing script
-- ✅ `results/` directory for test outputs
-- ✅ Feature document in `odd/tasks/model-comparison.md`
+### 4. Model selection infrastructure
+- ✅ Registry-driven role selection (`select-role-model.sh`)
+- ✅ Quiet daily hook + on-demand `models-status`
+- ✅ Privacy tier setup (`privacy-setup.sh`) — your tier: 3
+- ✅ Feature documents in `odd/tasks/`
+
+## Model testing: cancelled
+
+Baseline tests, `test-models.sh`, and `COMPARISON-MATRIX.md` scoring were cancelled on 2026-09-23 to preserve free-token budget. Do not reintroduce a model-testing harness.
 
 ## Next Steps
 
-### Immediate (Today)
-1. **Review the documentation**
-   - Read `QUICK-REFERENCE.md` for quick overview
-   - Check `README.md` for detailed analysis
-
-2. **Run initial tests**
-   ```bash
-   cd /home/francesc/projects/free-model-comparison
-   ./test-models.sh
-   ```
-
-### This Week
-1. **Fill in comparison matrix**
-   - Test each model on representative tasks
-   - Score in `COMPARISON-MATRIX.md`
-
-2. **Create Gentle-AI profile**
-   ```bash
-   gentle-ai sync --profile free-models:opencode/mimo-v2.5-free
-   ```
-
-3. **Test in OpenCode**
-   - Start OpenCode
-   - Press Tab to switch profiles
-   - Run SDD workflows
+### Immediate
+1. Review `QUICK-REFERENCE.md` for the current assignment model
+2. Set/confirm privacy tier if needed: `./privacy-setup.sh`
 
 ### Ongoing
-1. **Monitor model availability**
-   - Free models may change
-   - Check for new additions
-
-2. **Refine assignments**
-   - Adjust based on real usage
-   - Update documentation
-
-3. **Share findings**
-   - Document best practices
-   - Contribute to community
+1. **Monitor model availability** — free models change; daily hook + `models-status` report on demand
+2. **Refine assignments** — registry `role_chains` is the single source of truth
+3. Deliver open work via PR #1 (`feat/quiet-daily-hook`)
 
 ## Key Commands
 
@@ -72,14 +46,14 @@
 # Check Gentle-AI status
 gentle-ai doctor
 
-# Create/modify profiles
-gentle-ai sync --profile free-models:opencode/mimo-v2.5-free
+# On-demand model report + apply
+models-status   # after sourcing session-start-hook.sh
 
-# Run tests
-./test-models.sh
+# Set privacy preference
+./privacy-setup.sh
 
-# View results
-cat results/*.json
+# See current assignments
+./model-selector.sh
 ```
 
 ## Resources
@@ -93,9 +67,9 @@ cat results/*.json
 If you encounter issues:
 1. Run `gentle-ai doctor` to check ecosystem health
 2. Check `README.md` for troubleshooting
-3. Review model-specific limitations in documentation
+3. Review model notes in `privacy-tier-registry.json`
 
 ---
 
-**Status:** ✅ Ready to start testing!
-**Next Action:** Run `./test-models.sh` to begin baseline testing
+**Status:** ✅ Selection system live; model-testing cancelled by design.
+**Next Action:** Merge PR #1 when ready.
