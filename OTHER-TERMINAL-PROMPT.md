@@ -31,7 +31,7 @@ Content: daily-check.sh fetches live models from Zen API, compares snapshot, upd
 
 **Memoria 4** - topic_key "project/remaining-tasks", type "discovery":
 Title: "Remaining tasks for free-model-comparison"
-Content: 1) ODD vs SDD alignment needed in odd/tasks/model-comparison.md. 2) test-models.sh is skeleton, no real execution. 3) User hasnt chosen privacy tier yet.
+Content: Model testing cancelled (free-token budget); privacy tier = 3 chosen; quiet-daily + model-agnostic selection delivered (PR #1).
 
 ### Paso 4: Verificar
 Ejecutá mem_search con query "free-model-comparison" para confirmar que todo se guardó.

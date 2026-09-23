@@ -47,10 +47,19 @@ Session starts
 
 ### Session Hook
 
-The `session-start-hook.sh` runs once per day when you open a terminal. It:
+The `session-start-hook.sh` runs once per day when you open a terminal. It is
+**silent on success** (detail is appended to `results/session-start.log`).
+It:
 - Checks Zen for model changes
 - Updates the local registry
 - Regenerates agent assignments in `opencode.jsonc`
+
+Failures still print to stderr. For the full report on demand (after the hook
+is sourced):
+
+```bash
+models-status
+```
 
 Add to your `~/.bashrc`:
 ```bash

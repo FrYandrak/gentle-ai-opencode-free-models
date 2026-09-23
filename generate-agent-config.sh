@@ -9,6 +9,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/.privacy-config"
 REGISTRY_FILE="$SCRIPT_DIR/privacy-tier-registry.json"
 
+# Shared registry-driven role selection (load_privacy_tier, select_role_model)
+source "$SCRIPT_DIR/select-role-model.sh"
+
 # ─── Load privacy tier ──────────────────────────────────────────────────────
 
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -16,55 +19,13 @@ if [ ! -f "$CONFIG_FILE" ]; then
     exit 1
 fi
 
-source "$CONFIG_FILE"
-TIER="$privacy_max_tier"
+load_privacy_tier
+TIER="$PRIVACY_TIER"
 
 if [ -z "$TIER" ]; then
     echo '{"error": "Invalid .privacy-config: privacy_max_tier is empty."}' >&2
     exit 1
 fi
-
-# ─── Model selection logic (same as model-selector.sh) ──────────────────────
-
-select_model_for_role() {
-    local role=$1
-    local max_tier=$2
-
-    case $role in
-        orchestrator) candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3-ultra-free") ;;
-        explore)      candidates=("opencode/nemotron-3-ultra-free" "opencode/mimo-v2.5-free") ;;
-        design)       candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3-ultra-free") ;;
-        spec)         candidates=("opencode/ling-3.0-flash-fin-free" "opencode/nemotron-3.5-lightning-free" "opencode/mimo-v2.5-free") ;;
-        tasks)        candidates=("opencode/ling-3.0-flash-fin-free" "opencode/nemotron-3.5-lightning-free" "opencode/mimo-v2.5-free") ;;
-        apply)        candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3.5-lightning-free" "opencode/big-pickle") ;;
-        verify)       candidates=("opencode/nemotron-3.5-lightning-free" "opencode/nemotron-3-ultra-free" "opencode/ling-3.0-flash-fin-free") ;;
-        archive)      candidates=("opencode/ling-3.0-flash-fin-free" "opencode/nemotron-3.5-lightning-free" "opencode/mimo-v2.5-free") ;;
-        research)     candidates=("opencode/nemotron-3-ultra-free" "opencode/mimo-v2.5-free") ;;
-    esac
-
-    for model in "${candidates[@]}"; do
-        local model_tier=$(jq -r ".models[\"$model\"].privacy_tier // \"99\"" "$REGISTRY_FILE" 2>/dev/null | cut -d'_' -f1)
-        local exists=$(jq -r ".models[\"$model\"].name // \"\"" "$REGISTRY_FILE" 2>/dev/null)
-
-        if [ -n "$exists" ] && [ "$model_tier" -le "$max_tier" ] 2>/dev/null; then
-            echo "$model"
-            return 0
-        fi
-    done
-
-    # Fallback: first available model at tier
-    local fallback=$(jq -r ".models | to_entries[] | select(
-        (.value.privacy_tier | split(\"_\")[0] | tonumber) <= $max_tier
-    ) | .key" "$REGISTRY_FILE" 2>/dev/null | head -1)
-
-    if [ -n "$fallback" ]; then
-        echo "$fallback"
-        return 0
-    fi
-
-    echo ""
-    return 1
-}
 
 # ─── Generate agent config ──────────────────────────────────────────────────
 
@@ -86,6 +47,7 @@ declare -A AGENT_ROLES=(
 
 # Agent names that exist in opencode.jsonc as sdd-*-free-models
 AGENT_NAMES=(
+    "gentle-orchestrator"
     "sdd-orchestrator-free-models"
     "sdd-explore-free-models"
     "sdd-research-free-models"
@@ -100,23 +62,34 @@ AGENT_NAMES=(
     "sdd-propose-free-models"
 )
 
+# Also emit the top-level default model (used by agents that do not pin one)
+orchestrator_model=$(select_role_model "orchestrator" "$TIER")
+if [ -z "$orchestrator_model" ] || [ "$orchestrator_model" = "NONE" ]; then
+    orchestrator_model="opencode/big-pickle"
+fi
+
 # Build JSON output
 echo "{"
 echo "  \"_meta\": {"
 echo "    \"generated_by\": \"generate-agent-config.sh\","
 echo "    \"privacy_tier\": $TIER,"
-echo "    \"generated_at\": \"$(date -Iseconds)\""
+echo "    \"generated_at\": \"$(date -Iseconds)\","
+echo "    \"top_level_model\": \"$orchestrator_model\""
 echo "  },"
 echo "  \"agents\": {"
 
 first=true
 for agent_name in "${AGENT_NAMES[@]}"; do
-    # Extract role suffix (e.g., sdd-explore-free-models → explore)
-    suffix="${agent_name#sdd-}"
-    suffix="${suffix%-free-models}"
-    role="${AGENT_ROLES[$suffix]:-$suffix}"
+    # Extract role suffix (gentle-orchestrator → orchestrator; sdd-explore-free-models → explore)
+    if [ "$agent_name" = "gentle-orchestrator" ]; then
+        role="orchestrator"
+    else
+        suffix="${agent_name#sdd-}"
+        suffix="${suffix%-free-models}"
+        role="${AGENT_ROLES[$suffix]:-$suffix}"
+    fi
 
-    model=$(select_model_for_role "$role" "$TIER")
+    model=$(select_role_model "$role" "$TIER")
 
     if [ -z "$model" ]; then
         model="NONE"

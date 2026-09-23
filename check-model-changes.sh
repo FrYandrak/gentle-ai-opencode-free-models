@@ -11,6 +11,9 @@ REGISTRY_FILE="$SCRIPT_DIR/privacy-tier-registry.json"
 SNAPSHOT_FILE="$SCRIPT_DIR/results/.model-snapshot.txt"
 CHANGELOG_FILE="$SCRIPT_DIR/results/model-changelog.md"
 
+# Shared registry-driven role selection (load_privacy_tier, select_role_model)
+source "$SCRIPT_DIR/select-role-model.sh"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -37,7 +40,8 @@ fetch_live_models() {
     fi
     
     # Parse the response - extract free model IDs
-    # The endpoint returns JSON with model objects
+    # FREE-ONLY rule: paid models must NEVER enter the pipeline.
+    # Match only ids ending in "-free" or the stealth big-pickle.
     echo "$response" | jq -r '
         if type == "array" then
             .[] | select(.id != null) | .id
@@ -46,7 +50,7 @@ fetch_live_models() {
             elif .models then .models[] | select(.id != null) | .id
             else empty end
         else empty end
-    ' 2>/dev/null | grep -i "free\|big-pickle\|muse-spark" | sort || true
+    ' 2>/dev/null | grep -iE -- '-free$|^big-pickle$' | sort || true
 }
 
 # ============================================================
@@ -83,14 +87,13 @@ re_evaluate_assignments() {
         return
     fi
     
-    source "$CONFIG_FILE"
-    local tier="$privacy_max_tier"
+    load_privacy_tier
+    local tier="$PRIVACY_TIER"
     
     echo ""
     echo -e "${BOLD}Re-evaluated assignments (privacy tier $tier):${NC}"
     echo ""
     
-    # Source the model selector logic
     local roles=("orchestrator" "explore" "design" "spec" "tasks" "apply" "verify" "archive")
     local role_labels=("Orchestrator" "sdd-explore" "sdd-design" "sdd-spec" "sdd-tasks" "sdd-apply" "sdd-verify" "sdd-archive")
     
@@ -98,16 +101,13 @@ re_evaluate_assignments() {
         local role="${roles[$i]}"
         local label="${role_labels[$i]}"
         
-        # Simple role-based selection
-        local model=""
-        case $role in
-            orchestrator) model="opencode/mimo-v2.5-free" ;;
-            explore|research) model="opencode/nemotron-3-ultra-free" ;;
-            design) model="opencode/mimo-v2.5-free" ;;
-            spec|tasks|archive) model="opencode/ling-3.0-flash-fin-free" ;;
-            apply) model="opencode/mimo-v2.5-free" ;;
-            verify) model="opencode/nemotron-3.5-lightning-free" ;;
-        esac
+        # Registry-driven selection: first chain member passing all gates wins
+        local model=$(select_role_model "$role" "$tier")
+        
+        if [ "$model" = "NONE" ]; then
+            echo -e "  ${RED}✗${NC} $label: NO MODEL — needs attention"
+            continue
+        fi
         
         # Check if model still exists in registry
         local exists=$(jq -r ".models[\"$model\"].name // \"\"" "$REGISTRY_FILE" 2>/dev/null)
@@ -239,19 +239,19 @@ echo -e "${BOLD}Updating registry...${NC}"
 # Add new models
 while IFS= read -r model; do
     if [ -n "$model" ]; then
-        # Add with default tier 3 (model improvement) - user should verify
+        # Default tier 4 (unknown privacy = worst case) per free-only policy
         jq ".models[\"opencode/$model\"] = {
             \"name\": \"$model\",
             \"provider\": \"Unknown\",
-            \"privacy_tier\": \"3_model_improvement\",
-            \"evidence\": \"Newly added to OpenCode Zen. Privacy tier needs manual verification.\",
+            \"privacy_tier\": \"4_explicit_training\",
+            \"evidence\": \"UNVERIFIED — added $(date -Iseconds). Default tier 4 per free-only policy: unknown privacy = maximum exposure. Upgrade only after verified privacy evidence.\",
             \"privacy_url\": null,
-            "context_window": 262144,
-            "output_limit": 131072,
-            "tool_call": true,
-            "best_for\": []
+            \"context_window\": 262144,
+            \"output_limit\": 131072,
+            \"tool_call\": true,
+            \"best_for\": []
         }" "$REGISTRY_FILE" > "$REGISTRY_FILE.tmp" && mv "$REGISTRY_FILE.tmp" "$REGISTRY_FILE"
-        echo -e "  ${GREEN}+ Added: $model${NC} (default tier 3 — verify privacy policy)"
+        echo -e "  ${GREEN}+ Added: $model${NC} (default tier 4 — verify privacy policy to upgrade)"
     fi
 done <<< "$added_to_live"
 
@@ -278,7 +278,7 @@ re_evaluate_assignments
 
 echo ""
 echo -e "${YELLOW}${BOLD}⚠ Important:${NC}"
-echo "  • New models were added with default privacy tier 3."
+echo "  • New models were added with default privacy tier 4 (unknown = worst case)."
 echo "  • Please verify their actual privacy policies."
 echo "  • Run ./privacy-setup.sh to review and adjust if needed."
 echo "  • If a model you were using was removed, re-run:"

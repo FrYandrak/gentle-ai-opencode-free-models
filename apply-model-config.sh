@@ -63,6 +63,16 @@ jq -r '.agents | to_entries[] | "\(.key)|\(.value.model)"' "$config_file" | whil
     echo "  ✓ $agent_name → $model"
 done
 
+# Patch top-level default model so unpinned agents (and OpenCode's
+# session default) never fall back to a local LLM.
+top_model=$(jq -r '._meta.top_level_model // empty' "$config_file")
+if [ -n "$top_model" ] && [ "$top_model" != "NONE" ]; then
+    jq ".model = \"$top_model\"" "$TMPFILE" > "$TMPFILE.tmp" && mv "$TMPFILE.tmp" "$TMPFILE"
+    echo "  ✓ top-level model → $top_model"
+else
+    echo "  ⚠ top_level_model missing — leaving top-level model unchanged"
+fi
+
 # ─── Validate and apply ─────────────────────────────────────────────────────
 
 if jq empty "$TMPFILE" 2>/dev/null; then

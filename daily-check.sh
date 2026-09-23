@@ -11,6 +11,9 @@ REGISTRY_FILE="$SCRIPT_DIR/privacy-tier-registry.json"
 SNAPSHOT_FILE="$SCRIPT_DIR/results/.daily-snapshot.txt"
 LOG_FILE="$SCRIPT_DIR/results/daily-check.log"
 
+# Shared registry-driven role selection (load_privacy_tier, select_role_model)
+source "$SCRIPT_DIR/select-role-model.sh"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -46,7 +49,8 @@ fetch_zen_models() {
         return 1
     fi
     
-    # Extract free model IDs (filter for free-tier models)
+    # Extract free model IDs — FREE-ONLY rule: paid models must NEVER enter
+    # the pipeline. Match only ids ending in "-free" or the stealth big-pickle.
     echo "$response" | jq -r '
         if type == "array" then .[]
         elif type == "object" then
@@ -56,7 +60,7 @@ fetch_zen_models() {
         else empty end
         | select(.id != null)
         | .id
-    ' 2>/dev/null | grep -iE "free|big-pickle|muse-spark|jev" | sort || true
+    ' 2>/dev/null | grep -iE -- '-free$|^big-pickle$' | sort || true
 }
 
 # ============================================================
@@ -74,47 +78,9 @@ save_snapshot() {
 }
 
 # ============================================================
-# Model selection based on privacy tier
+# Model selection based on privacy tier — provided by
+# select-role-model.sh (select_role_model)
 # ============================================================
-
-select_model_for_role() {
-    local role=$1
-    local max_tier=$2
-    
-    # Role preference order (model IDs)
-    local candidates=()
-    case $role in
-        orchestrator)  candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3-ultra-free") ;;
-        explore)       candidates=("opencode/nemotron-3-ultra-free" "opencode/mimo-v2.5-free") ;;
-        design)        candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3-ultra-free") ;;
-        spec|tasks|archive) candidates=("opencode/ling-3.0-flash-fin-free" "opencode/nemotron-3.5-lightning-free" "opencode/mimo-v2.5-free") ;;
-        apply)         candidates=("opencode/mimo-v2.5-free" "opencode/nemotron-3.5-lightning-free" "opencode/big-pickle") ;;
-        verify)        candidates=("opencode/nemotron-3.5-lightning-free" "opencode/nemotron-3-ultra-free" "opencode/ling-3.0-flash-fin-free") ;;
-    esac
-    
-    for model in "${candidates[@]}"; do
-        local exists=$(jq -r ".models[\"$model\"].name // \"\"" "$REGISTRY_FILE" 2>/dev/null)
-        local model_tier=$(jq -r ".models[\"$model\"].privacy_tier | split(\"_\")[0] | tonumber" "$REGISTRY_FILE" 2>/dev/null)
-        
-        if [ -n "$exists" ] && [ "$model_tier" -le "$max_tier" ] 2>/dev/null; then
-            echo "$model"
-            return 0
-        fi
-    done
-    
-    # Fallback: first available model at tier
-    local fallback=$(jq -r ".models | to_entries[] | select(
-        (.value.privacy_tier | split(\"_\")[0] | tonumber) <= $max_tier
-    ) | .key" "$REGISTRY_FILE" 2>/dev/null | head -1)
-    
-    if [ -n "$fallback" ]; then
-        echo "$fallback"
-        return 0
-    fi
-    
-    echo "NONE"
-    return 1
-}
 
 # ============================================================
 # Main daily check
@@ -149,8 +115,7 @@ if [ ! -f "$CONFIG_FILE" ]; then
     fi
 fi
 
-source "$CONFIG_FILE"
-PRIVACY_TIER="$privacy_max_tier"
+load_privacy_tier
 
 echo -e "  Privacy tier: ${CYAN}$PRIVACY_TIER${NC}"
 echo -e "  Checking OpenCode Zen..."
@@ -207,7 +172,7 @@ if [ "$live_count" -gt 0 ]; then
         echo ""
         echo -e "${YELLOW}Registry will be updated with available models.${NC}"
         
-        # Update registry: add new models with default tier 3
+        # Update registry: new models default to tier 4 (unknown privacy = worst case)
         while IFS= read -r model; do
             if [ -n "$model" ]; then
                 exists=$(jq -r ".models[\"opencode/$model\"].name // \"\"" "$REGISTRY_FILE" 2>/dev/null)
@@ -215,15 +180,15 @@ if [ "$live_count" -gt 0 ]; then
                     jq ".models[\"opencode/$model\"] = {
                         \"name\": \"$model\",
                         \"provider\": \"Unknown\",
-                        \"privacy_tier\": \"3_model_improvement\",
-                        \"evidence\": \"Auto-added on $(date -Iseconds). Verify privacy policy.\",
+                        \"privacy_tier\": \"4_explicit_training\",
+                        \"evidence\": \"UNVERIFIED — auto-added $(date -Iseconds). Default tier 4 per free-only policy: unknown privacy = maximum exposure. Upgrade only after verified privacy evidence.\",
                         \"privacy_url\": null,
                         \"context_window\": 262144,
                         \"output_limit\": 131072,
                         \"tool_call\": true,
                         \"best_for\": []
                     }" "$REGISTRY_FILE" > "$REGISTRY_FILE.tmp" && mv "$REGISTRY_FILE.tmp" "$REGISTRY_FILE"
-                    echo -e "    ${GREEN}+ Added to registry: $model${NC} (verify privacy tier)"
+                    echo -e "    ${GREEN}+ Added to registry: $model${NC} (default tier 4 — verify privacy to upgrade)"
                 fi
             fi
         done <<< "$added"
@@ -267,7 +232,7 @@ echo "  ────────────────────────
 for i in "${!roles[@]}"; do
     role="${roles[$i]}"
     label="${role_labels[$i]}"
-    model=$(select_model_for_role "$role" "$PRIVACY_TIER")
+    model=$(select_role_model "$role" "$PRIVACY_TIER")
     
     if [ "$model" = "NONE" ]; then
         printf "  %-18s ${RED}%-35s %s${NC}\n" "$label" "NO MODEL" "⚠ needs attention"

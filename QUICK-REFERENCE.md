@@ -1,27 +1,15 @@
 # Quick Reference: Free Models for Gentle-AI
 
-## Top Recommendations (TL;DR) — Tier 2 (Anonymous Improvement Only)
-
-These models have the strongest privacy guarantees among free options:
-
-| Role | Model | Why |
-|------|-------|-----|
-| **Orchestrator** | `opencode/nemotron-3-ultra-free` | Best available at tier 2 |
-| **Explore/Research** | `opencode/nemotron-3-ultra-free` | 1M context window, strong privacy |
-| **Design** | `opencode/nemotron-3-ultra-free` | Strong reasoning at tier 2 |
-| **Implementation** | `opencode/nemotron-3.5-lightning-free` | Fast, reliable, good privacy |
-| **Verification** | `opencode/nemotron-3.5-lightning-free` | Fast, reliable checks |
-
-> ⚠ At tier 2, you lose MiMo (best reasoning), DeepSeek (best code gen), and Ling Flash (fast docs). Run `./privacy-setup.sh` to adjust if this is too restrictive.
-
 ## Privacy Tiers
 
 | Tier | Label | Models Available |
 |------|-------|-----------------|
 | 1 | Strict Privacy | ❌ None |
 | 2 | Anonymous Improvement | Nemotron Ultra, Nemotron Lightning |
-| 3 | Model Improvement | MiMo, DeepSeek, Ling Flash, Big Pickle, JEV |
-| 4 | Accept All | All 8 models (including Muse Spark → Meta training) |
+| 3 | Model Improvement | MiMo, Ling Flash, Big Pickle |
+| 4 | Accept All | All free models (see registry notes) |
+
+Your configured tier: **3** (`.privacy-config`).
 
 ## Quick Setup
 
@@ -35,33 +23,38 @@ These models have the strongest privacy guarantees among free options:
 # 3. Check for model changes
 ./check-model-changes.sh
 
-# 4. Run tests (only models in your tier)
-./test-models.sh
+# 4. On-demand daily report + apply (hook must be sourced)
+models-status
 ```
 
-## Model Quick Stats
+## How assignment works (model-agnostic)
 
-| Model | Speed | Reasoning | Context | Output | Privacy Tier | Best For |
-|-------|-------|-----------|---------|--------|-------------|----------|
-| MiMo-V2.5 | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | 262K | 6K | 3 | Planning, Review |
-| Nemotron Ultra | ⭐⭐ | ⭐⭐⭐⭐ | 1M | 131K | 2 | Large codebase analysis |
-| Nemotron Lightning | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | 262K | 131K | 2 | Quick verification |
-| Ling Flash | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | 262K | 131K | 3 | Documentation, Tasks |
-| DeepSeek Flash | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | 262K | 131K | 3 | Code generation |
-| Muse Spark | ⭐⭐⭐⭐ | ⭐⭐⭐ | 262K | 131K | 4 ⚠ | Creative tasks |
+- Single source of truth: `privacy-tier-registry.json` → `role_chains` / `role_aliases`
+- Shared selector: `select-role-model.sh` (free-only + `tier <= max_tier`, Big Pickle terminal)
+- Scripts that used to hardcode chains now source the lib — catalog changes touch the registry only
+
+## Model Quick Stats (qualitative notes only — no scoring harness)
+
+| Model | Privacy Tier | Best For |
+|-------|-------------|----------|
+| MiMo-V2.6 Flash | 3 | Planning, review (live default) |
+| MiMo-V2.5 | 3 | Listed but currently broken on Zen — fallback only |
+| Nemotron Ultra | 2 | Large codebase analysis |
+| Nemotron Lightning | 2 | Quick verification |
+| Ling Flash | 3 | Documentation, tasks |
+| Muse Spark | 4 ⚠ | Creative tasks |
 
 ## Remember
 
 - All free models support tool calling (required for SDD)
 - Free models are available "for a limited time"
-- **Privacy tiers filter which models you can use** — run `./privacy-setup.sh` to set yours
-- Check for new free model additions regularly with `./check-model-changes.sh`
-- Test before relying on them for critical work
+- **Privacy tiers filter which models you can use** — `./privacy-setup.sh`
+- Check for free model additions with `./check-model-changes.sh`
+- Model-testing harness is **cancelled** (free-token budget)
 
 ## Next Steps
 
-1. Set privacy tier: `./privacy-setup.sh`
-2. Run baseline tests: `./test-models.sh`
-3. Fill in comparison matrix: `COMPARISON-MATRIX.md`
-4. Get model assignments: `./model-selector.sh`
-5. Check for changes: `./check-model-changes.sh`
+1. Confirm privacy tier: `./privacy-setup.sh`
+2. Get model assignments: `./model-selector.sh`
+3. Check for changes: `./check-model-changes.sh`
+4. Daily report on demand: `models-status`
