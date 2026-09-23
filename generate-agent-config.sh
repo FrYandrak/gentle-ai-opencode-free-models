@@ -55,25 +55,11 @@ AGENT_NAMES=(
     "sdd-propose-free-models"
 )
 
-# Also emit the top-level default model (used by agents that do not pin one)
-orchestrator_model=$(select_role_model "orchestrator" "$TIER")
-if [ -z "$orchestrator_model" ] || [ "$orchestrator_model" = "NONE" ]; then
-    orchestrator_model="opencode/big-pickle"
-fi
-
-# Build JSON output
-echo "{"
-echo "  \"_meta\": {"
-echo "    \"generated_by\": \"generate-agent-config.sh\","
-echo "    \"privacy_tier\": $TIER,"
-echo "    \"generated_at\": \"$(date -Iseconds)\","
-echo "    \"top_level_model\": \"$orchestrator_model\""
-echo "  },"
-echo "  \"agents\": {"
-
-first=true
+# Also emit agent → role pairs for the single jq pass below
+# (gentle-orchestrator → orchestrator; sdd-<suffix>-free-models → suffix,
+# with the AGENT_ROLES override for non-identity mappings).
+pairs=""
 for agent_name in "${AGENT_NAMES[@]}"; do
-    # Extract role suffix (gentle-orchestrator → orchestrator; sdd-explore-free-models → explore)
     if [ "$agent_name" = "gentle-orchestrator" ]; then
         role="orchestrator"
     else
@@ -81,21 +67,58 @@ for agent_name in "${AGENT_NAMES[@]}"; do
         suffix="${suffix%-free-models}"
         role="${AGENT_ROLES[$suffix]:-$suffix}"
     fi
-
-    model=$(select_role_model "$role" "$TIER")
-
-    if [ -z "$model" ]; then
-        model="NONE"
-    fi
-
-    # Get model display name
-    name=$(jq -r ".models[\"$model\"].name // \"$model\"" "$REGISTRY_FILE" 2>/dev/null)
-
-    if [ "$first" = true ]; then first=false; else echo ","; fi
-    printf '    "%s": { "model": "%s", "name": "%s", "role": "%s" }' \
-        "$agent_name" "$model" "$name" "$role"
+    pairs+="${agent_name}|${role}"$'\n'
 done
 
-echo ""
-echo "  }"
-echo "}"
+# Single jq pass: role→model selection for every agent (mirrors the chain
+# algorithm in select-role-model.sh), one name lookup per agent, and JSON
+# emission via jq -n --arg (no string concatenation). The top-level
+# NONE → big-pickle fallback is intentional (always-free default) and
+# must stay exactly as written here.
+jq -n \
+    --slurpfile reg "$REGISTRY_FILE" \
+    --arg pairs "$pairs" \
+    --argjson tier "$TIER" \
+    --arg generated_at "$(date -Iseconds)" '
+    $reg[0] as $r
+    | ($r.role_aliases // {}) as $aliases
+    | ($r.role_chains // {}) as $chains
+    | ($r.models // {}) as $models
+    | def pick($role; $max):
+        ($aliases[$role] // $role) as $canon
+        | ($chains[$canon] // $chains.default // []) as $chain0
+        | (if (($chain0 | length) == 0 or ($chain0[-1] != "opencode/big-pickle"))
+           then ($chain0 + ["opencode/big-pickle"])
+           else $chain0 end) as $chain
+        | [ $chain[]
+            | . as $id
+            | select($id == "opencode/big-pickle" or ($id | endswith("-free")))
+            | select($models | has($id))
+            | ((($models[$id].privacy_tier // "4") | tostring | split("_")[0] | tonumber? // 4)) as $t
+            | select($t <= $max)
+          ][0] // empty;
+    ($pairs | split("\n")
+        | map(select(length > 0) | split("|") | {key: .[0], value: .[1]})
+        | from_entries) as $agent_roles
+    | (pick("orchestrator"; $tier) // "") as $orch
+    | {
+        _meta: {
+            generated_by: "generate-agent-config.sh",
+            privacy_tier: $tier,
+            generated_at: $generated_at,
+            top_level_model: (
+                if ($orch == "" or $orch == "NONE") then "opencode/big-pickle"
+                else $orch end
+            )
+        },
+        agents: (
+            reduce ($agent_roles | to_entries[]) as $e ({};
+                (pick($e.value; $tier) // "NONE") as $m
+                | .[$e.key] = {
+                    model: $m,
+                    name: (if $m == "NONE" then $m else ($models[$m].name // $m) end),
+                    role: $e.value
+                })
+        )
+    }
+'

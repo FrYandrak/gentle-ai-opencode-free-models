@@ -126,18 +126,18 @@ print_tier_info() {
 
 get_models_for_tier() {
     local max_tier=$1
-    local models=()
-    
-    # Read registry and filter by tier (fields: model_id|tier_num)
-    while IFS= read -r line; do
-        local model_id=$(echo "$line" | cut -d'|' -f1)
-        local tier_num=$(echo "$line" | cut -d'|' -f2)
-        if [ "$tier_num" -le "$max_tier" ] 2>/dev/null; then
-            models+=("$model_id")
-        fi
-    done < <(jq -r '.models | to_entries[] | "\(.key)|\(.value.privacy_tier | split("_")[0])"' "$REGISTRY_FILE" 2>/dev/null | sort -t'|' -k2 -n)
-    
-    printf '%s\n' "${models[@]}"
+    # One jq pass emits every field the listing loops need
+    # (id|name|provider), ordered by tier.
+    jq -r --arg max "$max_tier" '
+        [.models | to_entries[]
+         | ((.value.privacy_tier // "4" | tostring | split("_")[0] | tonumber? // 4)) as $t
+         | select($t <= ($max | tonumber))
+         | {tier: $t,
+            id: .key,
+            name: (.value.name // .key),
+            provider: (.value.provider // "Unknown")}]
+        | sort_by(.tier)
+        | .[] | "\(.id)|\(.name)|\(.provider)"' "$REGISTRY_FILE" 2>/dev/null
 }
 
 save_config() {
@@ -175,10 +175,8 @@ show_current_config() {
     
     echo -e "${BOLD}Models available at your tier:${NC}"
     local count=0
-    while IFS= read -r model_id; do
+    while IFS='|' read -r model_id name provider; do
         if [ -n "$model_id" ]; then
-            local name=$(jq -r ".models[\"$model_id\"].name // \"$model_id\"" "$REGISTRY_FILE" 2>/dev/null)
-            local provider=$(jq -r ".models[\"$model_id\"].provider // \"Unknown\"" "$REGISTRY_FILE" 2>/dev/null)
             echo "  ✓ $name ($provider) — $model_id"
             count=$((count + 1))
         fi
@@ -305,25 +303,25 @@ print_tier_info "$tier"
 
 echo ""
 echo -e "${BOLD}Models you'll have access to:${NC}"
-while IFS= read -r model_id; do
+while IFS='|' read -r model_id name provider; do
     if [ -n "$model_id" ]; then
-        name=$(jq -r ".models[\"$model_id\"].name // \"$model_id\"" "$REGISTRY_FILE" 2>/dev/null)
-        provider=$(jq -r ".models[\"$model_id\"].provider // \"Unknown\"" "$REGISTRY_FILE" 2>/dev/null)
         echo "  ✓ $name ($provider)"
     fi
 done < <(get_models_for_tier "$tier")
 
 echo ""
 echo -e "${BOLD}Models excluded at tier $tier:${NC}"
-while IFS= read -r model_id; do
+# One jq pass emits id|name|full tier for every model above the selected tier.
+while IFS='|' read -r model_id name tier_name; do
     if [ -n "$model_id" ]; then
-        name=$(jq -r ".models[\"$model_id\"].name // \"$model_id\"" "$REGISTRY_FILE" 2>/dev/null)
-        tier_name=$(jq -r ".models[\"$model_id\"].privacy_tier // \"unknown\"" "$REGISTRY_FILE" 2>/dev/null)
         echo "  ✗ $name (tier: $tier_name)"
     fi
-done < <(jq -r '.models | to_entries[] | select(
-    (.value.privacy_tier | split("_")[0] | tonumber) > '"$tier"'
-) | .key' "$REGISTRY_FILE" 2>/dev/null)
+done < <(jq -r --arg max "$tier" '
+    .models | to_entries[]
+    | ((.value.privacy_tier // "4" | tostring | split("_")[0] | tonumber? // 4)) as $t
+    | select($t > ($max | tonumber))
+    | [.key, (.value.name // .key), (.value.privacy_tier // "unknown")]
+    | join("|")' "$REGISTRY_FILE" 2>/dev/null)
 
 echo ""
 read -p "Confirm this selection? [Y/n]: " confirm

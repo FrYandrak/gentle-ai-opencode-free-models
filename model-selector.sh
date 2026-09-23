@@ -45,34 +45,6 @@ if [ ! -f "$REGISTRY_FILE" ]; then
 fi
 
 # ============================================================
-# Core functions
-# ============================================================
-
-get_models_at_or_below_tier() {
-    local max_tier=$1
-    jq -r ".models | to_entries[] | select(
-        (.value.privacy_tier | split(\"_\")[0] | tonumber) <= $max_tier
-    ) | .key" "$REGISTRY_FILE" 2>/dev/null
-}
-
-get_model_info() {
-    local model_id=$1
-    local field=$2
-    jq -r ".models[\"$model_id\"].$field // \"\"" "$REGISTRY_FILE" 2>/dev/null
-}
-
-get_model_tier() {
-    local model_id=$1
-    jq -r ".models[\"$model_id\"].privacy_tier // \"unknown\"" "$REGISTRY_FILE" 2>/dev/null
-}
-
-get_model_tier_num() {
-    local model_id=$1
-    local tier=$(get_model_tier "$model_id")
-    echo "$tier" | cut -d'_' -f1
-}
-
-# ============================================================
 # Role-based model selection (within privacy tier)
 # — provided by select-role-model.sh (select_role_model)
 # ============================================================
@@ -88,9 +60,22 @@ show_summary() {
     echo -e "${BOLD}╚══════════════════════════════════════════════════════════╝${NC}"
     echo ""
     
-    # Count available models
-    local total_models=$(jq '.models | length' "$REGISTRY_FILE")
-    local available_count=$(get_models_at_or_below_tier "$PRIVACY_TIER" | wc -l)
+    # One jq pass: load name/tier for every model, count available at tier.
+    local total_models=0 available_count=0
+    local -A MODEL_NAMES MODEL_TIERS
+    while IFS='|' read -r mid mname mtier; do
+        [ -n "$mid" ] || continue
+        MODEL_NAMES["$mid"]="$mname"
+        MODEL_TIERS["$mid"]="$mtier"
+        total_models=$((total_models + 1))
+        if [ "$mtier" -le "$PRIVACY_TIER" ] 2>/dev/null; then
+            available_count=$((available_count + 1))
+        fi
+    done < <(jq -r '.models | to_entries[]
+        | [.key,
+           (.value.name // .key),
+           ((.value.privacy_tier // "4" | tostring | split("_")[0]))]
+        | join("|")' "$REGISTRY_FILE" 2>/dev/null)
     local excluded_count=$((total_models - available_count))
     
     echo -e "  Privacy tier: ${CYAN}$PRIVACY_TIER${NC}"
@@ -116,8 +101,8 @@ show_summary() {
         if [ "$model" = "NONE" ]; then
             printf "  │ %-18s │ ${RED}%-40s${NC} │\n" "$label" "NO MODEL AVAILABLE"
         else
-            local name=$(get_model_info "$model" "name")
-            local tier_num=$(get_model_tier_num "$model")
+            local name="${MODEL_NAMES[$model]:-$model}"
+            local tier_num="${MODEL_TIERS[$model]:-4}"
             local tier_color="$GREEN"
             if [ "$tier_num" -ge 3 ]; then tier_color="$YELLOW"; fi
             if [ "$tier_num" -ge 4 ]; then tier_color="$RED"; fi
@@ -154,38 +139,47 @@ show_machine_output() {
 show_list() {
     echo -e "${BOLD}Available models (tier ≤ $PRIVACY_TIER):${NC}"
     echo ""
-    while IFS= read -r model_id; do
-        if [ -n "$model_id" ]; then
-            local name=$(get_model_info "$model_id" "name")
-            local provider=$(get_model_info "$model_id" "provider")
-            local tier_num=$(get_model_tier_num "$model_id")
-            local tier_color="$GREEN"
-            if [ "$tier_num" -ge 3 ]; then tier_color="$YELLOW"; fi
-            if [ "$tier_num" -ge 4 ]; then tier_color="$RED"; fi
-            echo -e "  ${tier_color}[$tier_num]${NC} $name ($provider)"
-            echo -e "       ${DIM}$model_id${NC}"
-        fi
-    done < <(get_models_at_or_below_tier "$PRIVACY_TIER")
+    # Single jq emits every field the listing needs (id|name|provider|tier).
+    while IFS='|' read -r model_id name provider tier_num; do
+        [ -n "$model_id" ] || continue
+        local tier_color="$GREEN"
+        if [ "$tier_num" -ge 3 ]; then tier_color="$YELLOW"; fi
+        if [ "$tier_num" -ge 4 ]; then tier_color="$RED"; fi
+        echo -e "  ${tier_color}[$tier_num]${NC} $name ($provider)"
+        echo -e "       ${DIM}$model_id${NC}"
+    done < <(jq -r --arg max "$PRIVACY_TIER" '
+        .models | to_entries[]
+        | ((.value.privacy_tier // "4" | tostring | split("_")[0] | tonumber? // 4)) as $t
+        | select($t <= ($max | tonumber))
+        | [.key,
+           (.value.name // .key),
+           (.value.provider // "Unknown"),
+           ($t | tostring)]
+        | join("|")' "$REGISTRY_FILE" 2>/dev/null)
     echo ""
 }
 
 show_excluded() {
     echo -e "${BOLD}Excluded models (tier > $PRIVACY_TIER):${NC}"
     echo ""
-    while IFS= read -r model_id; do
-        if [ -n "$model_id" ]; then
-            local name=$(get_model_info "$model_id" "name")
-            local provider=$(get_model_info "$model_id" "provider")
-            local tier=$(get_model_tier "$model_id")
-            local evidence=$(get_model_info "$model_id" "evidence")
-            echo -e "  ${RED}✗${NC} $name ($provider)"
-            echo -e "    ${DIM}Privacy tier: $tier${NC}"
-            echo -e "    ${DIM}${evidence:0:120}...${NC}"
-            echo ""
-        fi
-    done < <(jq -r ".models | to_entries[] | select(
-        (.value.privacy_tier | split(\"_\")[0] | tonumber) > $PRIVACY_TIER
-    ) | .key" "$REGISTRY_FILE" 2>/dev/null)
+    # Single jq emits id|name|provider|full tier|evidence (last field keeps
+    # any embedded "|" via read's remainder assignment).
+    while IFS='|' read -r model_id name provider tier evidence; do
+        [ -n "$model_id" ] || continue
+        echo -e "  ${RED}✗${NC} $name ($provider)"
+        echo -e "    ${DIM}Privacy tier: $tier${NC}"
+        echo -e "    ${DIM}${evidence:0:120}...${NC}"
+        echo ""
+    done < <(jq -r --arg max "$PRIVACY_TIER" '
+        .models | to_entries[]
+        | ((.value.privacy_tier // "4" | tostring | split("_")[0] | tonumber? // 4)) as $t
+        | select($t > ($max | tonumber))
+        | [.key,
+           (.value.name // .key),
+           (.value.provider // "Unknown"),
+           (.value.privacy_tier // "unknown"),
+           (.value.evidence // "")]
+        | join("|")' "$REGISTRY_FILE" 2>/dev/null)
 }
 
 show_gentleai_profile() {

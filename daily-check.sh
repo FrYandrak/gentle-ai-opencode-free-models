@@ -78,6 +78,42 @@ save_snapshot() {
 }
 
 # ============================================================
+# Registry update — one jq pass for add + remove + timestamp.
+# New models default to tier 4 (unknown privacy = worst case).
+# Writes via same-directory mktemp + mv (atomic, no fixed .tmp path).
+# ============================================================
+
+apply_registry_changes() {
+    local added=$1 removed=$2
+    local added_arr removed_arr tmp_registry
+    added_arr=$(printf '%s' "$added" | jq -Rn '[inputs | select(length > 0)]')
+    removed_arr=$(printf '%s' "$removed" | jq -Rn '[inputs | select(length > 0)]')
+    tmp_registry=$(mktemp "${REGISTRY_FILE}.tmp.XXXXXX")
+    jq -n \
+        --argjson reg "$reg_json" \
+        --argjson adds "$added_arr" \
+        --argjson rems "$removed_arr" \
+        --arg ts "$(date -Iseconds)" '
+        reduce $adds[] as $m ($reg;
+            if (.models | has("opencode/" + $m)) then .
+            else .models["opencode/" + $m] = {
+                name: $m,
+                provider: "Unknown",
+                privacy_tier: "4_explicit_training",
+                evidence: ("UNVERIFIED — auto-added " + $ts + ". Default tier 4 per free-only policy: unknown privacy = maximum exposure. Upgrade only after verified privacy evidence."),
+                privacy_url: null,
+                context_window: 262144,
+                output_limit: 131072,
+                tool_call: true,
+                best_for: []
+            } end)
+        | reduce $rems[] as $m (. ; del(.models["opencode/" + $m]))
+        | .last_updated = $ts
+    ' > "$tmp_registry" && mv "$tmp_registry" "$REGISTRY_FILE"
+    reg_json=$(jq -c . "$REGISTRY_FILE")
+}
+
+# ============================================================
 # Main daily check
 # ============================================================
 
@@ -97,6 +133,10 @@ if [ ! -f "$REGISTRY_FILE" ]; then
     echo -e "${RED}Error: privacy-tier-registry.json not found.${NC}"
     exit 1
 fi
+
+# Single registry load for the run; reloaded after any write below so
+# later lookups always see the current state.
+reg_json=$(jq -c . "$REGISTRY_FILE")
 
 # Check privacy config
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -167,40 +207,19 @@ if [ "$live_count" -gt 0 ]; then
         echo ""
         echo -e "${YELLOW}Registry will be updated with available models.${NC}"
         
-        # Update registry: new models default to tier 4 (unknown privacy = worst case)
+        # Report only models that are actually new to the registry.
+        added_arr=$(printf '%s' "$added" | jq -Rn '[inputs | select(length > 0)]')
         while IFS= read -r model; do
-            if [ -n "$model" ]; then
-                exists=$(jq -r ".models[\"opencode/$model\"].name // \"\"" "$REGISTRY_FILE" 2>/dev/null)
-                if [ -z "$exists" ]; then
-                    tmp_registry=$(mktemp "${REGISTRY_FILE}.tmp.XXXXXX")
-                    jq ".models[\"opencode/$model\"] = {
-                        \"name\": \"$model\",
-                        \"provider\": \"Unknown\",
-                        \"privacy_tier\": \"4_explicit_training\",
-                        \"evidence\": \"UNVERIFIED — auto-added $(date -Iseconds). Default tier 4 per free-only policy: unknown privacy = maximum exposure. Upgrade only after verified privacy evidence.\",
-                        \"privacy_url\": null,
-                        \"context_window\": 262144,
-                        \"output_limit\": 131072,
-                        \"tool_call\": true,
-                        \"best_for\": []
-                    }" "$REGISTRY_FILE" > "$tmp_registry" && mv "$tmp_registry" "$REGISTRY_FILE"
-                    echo -e "    ${GREEN}+ Added to registry: $model${NC} (default tier 4 — verify privacy to upgrade)"
-                fi
-            fi
-        done <<< "$added"
+            [ -n "$model" ] && echo -e "    ${GREEN}+ Added to registry: $model${NC} (default tier 4 — verify privacy to upgrade)"
+        done < <(jq -rn --argjson reg "$reg_json" --argjson adds "$added_arr" \
+            '$adds[] | select(($reg.models // {}) | has("opencode/" + .) | not)')
         
-        # Remove models no longer on Zen
+        # Batch: add new, remove gone, stamp timestamp — single jq + one write.
+        apply_registry_changes "$added" "$removed"
+        
         while IFS= read -r model; do
-            if [ -n "$model" ]; then
-                tmp_registry=$(mktemp "${REGISTRY_FILE}.tmp.XXXXXX")
-                jq "del(.models[\"opencode/$model\"])" "$REGISTRY_FILE" > "$tmp_registry" && mv "$tmp_registry" "$REGISTRY_FILE"
-                echo -e "    ${RED}- Removed from registry: $model${NC}"
-            fi
+            [ -n "$model" ] && echo -e "    ${RED}- Removed from registry: $model${NC}"
         done <<< "$removed"
-        
-        # Update timestamp
-        tmp_registry=$(mktemp "${REGISTRY_FILE}.tmp.XXXXXX")
-        jq ".last_updated = \"$(date -Iseconds)\"" "$REGISTRY_FILE" > "$tmp_registry" && mv "$tmp_registry" "$REGISTRY_FILE"
         
         # Save new snapshot
         save_snapshot "$live_models"
@@ -224,6 +243,12 @@ echo ""
 roles=("orchestrator" "explore" "design" "spec" "tasks" "apply" "verify" "archive")
 role_labels=("Orchestrator" "sdd-explore" "sdd-design" "sdd-spec" "sdd-tasks" "sdd-apply" "sdd-verify" "sdd-archive")
 
+# One jq pass: model_id → display name for the whole table.
+declare -A MODEL_NAMES
+while IFS='|' read -r mid mname; do
+    [ -n "$mid" ] && MODEL_NAMES["$mid"]="$mname"
+done < <(jq -r '.models | to_entries[] | "\(.key)|\(.value.name // .key)"' <<<"$reg_json")
+
 printf "  ${BOLD}%-18s %-35s %s${NC}\n" "Role" "Model" "Status"
 echo "  ─────────────────────────────────────────────────────────────"
 
@@ -231,14 +256,13 @@ for i in "${!roles[@]}"; do
     role="${roles[$i]}"
     label="${role_labels[$i]}"
     model=$(select_role_model "$role" "$PRIVACY_TIER")
+    name="${MODEL_NAMES[$model]:-$model}"
     
     if [ "$model" = "NONE" ]; then
         printf "  %-18s ${RED}%-35s %s${NC}\n" "$label" "NO MODEL" "⚠ needs attention"
     elif [ "$model" = "opencode/big-pickle" ]; then
-        name=$(jq -r ".models[\"$model\"].name // \"$model\"" "$REGISTRY_FILE" 2>/dev/null)
         printf "  %-18s %-35s ${YELLOW}%s${NC}\n" "$label" "$name" "⚠ stealth fallback"
     else
-        name=$(jq -r ".models[\"$model\"].name // \"$model\"" "$REGISTRY_FILE" 2>/dev/null)
         printf "  %-18s %-35s ${GREEN}%s${NC}\n" "$label" "$name" "✓ ready"
     fi
 done
@@ -246,13 +270,11 @@ done
 echo ""
 
 # Count available
-available_count=0
-total_count=$(jq '.models | length' "$REGISTRY_FILE" 2>/dev/null)
-while IFS= read -r m; do
-    [ -n "$m" ] && available_count=$((available_count + 1))
-done < <(jq -r ".models | to_entries[] | select(
-    (.value.privacy_tier | split(\"_\")[0] | tonumber) <= $PRIVACY_TIER
-) | .key" "$REGISTRY_FILE" 2>/dev/null)
+total_count=$(jq '.models | length' <<<"$reg_json")
+available_count=$(jq --arg max "$PRIVACY_TIER" '
+    [.models | to_entries[] | select(
+        ((.value.privacy_tier // "4" | tostring | split("_")[0] | tonumber? // 4)) <= ($max | tonumber)
+    )] | length' <<<"$reg_json")
 
 echo -e "  ${DIM}Available: $available_count / $total_count models at tier $PRIVACY_TIER${NC}"
 

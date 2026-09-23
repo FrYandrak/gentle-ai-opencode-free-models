@@ -20,15 +20,22 @@ if [ ! -f "$OPENCODE_CONFIG" ]; then
     exit 1
 fi
 
+# ─── Temps + cleanup ────────────────────────────────────────────────────────
+
+# Both temps live next to their targets' filesystems (patched_file next to
+# OPENCODE_CONFIG) so mv stays a same-filesystem rename. The EXIT trap
+# guarantees neither leaks, on any exit path.
+config_file=$(mktemp)
+patched_file=$(mktemp "${OPENCODE_CONFIG}.tmp.XXXXXX")
+trap 'rm -f "$config_file" "$patched_file"' EXIT
+
 # ─── Generate agent config ──────────────────────────────────────────────────
 
 echo "Generating model assignments..."
-config_file=$(mktemp)
 "$SCRIPT_DIR/generate-agent-config.sh" > "$config_file" 2>/dev/null
 
 if [ ! -s "$config_file" ]; then
     echo "Error: generate-agent-config.sh produced empty output" >&2
-    rm -f "$config_file"
     exit 1
 fi
 
@@ -46,28 +53,36 @@ if [ ! -f "$BACKUP" ]; then
     echo "Backup created: $BACKUP"
 fi
 
-# ─── Patch opencode.jsonc ───────────────────────────────────────────────────
+# ─── Patch opencode.jsonc (single jq pass) ──────────────────────────────────
 
-# For each agent in the generated config, set the model field in opencode.jsonc
-TMPFILE=$(mktemp)
-cp "$OPENCODE_CONFIG" "$TMPFILE"
+# Agents without a model are reported and never patched.
+jq -r '.agents | to_entries[] | select(.value.model == "NONE")
+    | "  ⚠ No model available for \(.key) — skipping"' "$config_file"
 
-jq -r '.agents | to_entries[] | "\(.key)|\(.value.model)"' "$config_file" | while IFS='|' read -r agent_name model; do
-    if [ "$model" = "NONE" ]; then
-        echo "  ⚠ No model available for $agent_name — skipping"
-        continue
-    fi
+# Update object: agent name → model (NONE entries excluded).
+updates=$(jq -c '.agents
+    | with_entries(select(.value.model != "NONE") | .value = .value.model)' "$config_file")
 
-    # Patch the model field for this agent
-    jq ".agent[\"$agent_name\"].model = \"$model\"" "$TMPFILE" > "$TMPFILE.tmp" && mv "$TMPFILE.tmp" "$TMPFILE"
-    echo "  ✓ $agent_name → $model"
-done
-
-# Patch top-level default model so unpinned agents (and OpenCode's
+# Top-level default model so unpinned agents (and OpenCode's
 # session default) never fall back to a local LLM.
 top_model=$(jq -r '._meta.top_level_model // empty' "$config_file")
+set_top=false
 if [ -n "$top_model" ] && [ "$top_model" != "NONE" ]; then
-    jq ".model = \"$top_model\"" "$TMPFILE" > "$TMPFILE.tmp" && mv "$TMPFILE.tmp" "$TMPFILE"
+    set_top=true
+fi
+
+# One jq pass sets every agent model field plus the top-level model.
+jq --argjson updates "$updates" \
+   --arg top "$top_model" \
+   --argjson set_top "$set_top" '
+    reduce ($updates | to_entries[]) as $e (. ;
+        .agent[$e.key].model = $e.value)
+    | if $set_top then .model = $top else . end
+' "$OPENCODE_CONFIG" > "$patched_file"
+
+jq -r '.agents | to_entries[] | select(.value.model != "NONE")
+    | "  ✓ \(.key) → \(.value.model)"' "$config_file"
+if [ "$set_top" = true ]; then
     echo "  ✓ top-level model → $top_model"
 else
     echo "  ⚠ top_level_model missing — leaving top-level model unchanged"
@@ -75,21 +90,18 @@ fi
 
 # ─── Validate and apply ─────────────────────────────────────────────────────
 
-if jq empty "$TMPFILE" 2>/dev/null; then
-    mv "$TMPFILE" "$OPENCODE_CONFIG"
+if jq empty "$patched_file" 2>/dev/null; then
+    mv "$patched_file" "$OPENCODE_CONFIG"
     echo ""
     echo "✓ opencode.jsonc updated successfully"
 else
     echo "ERROR: Patched config failed JSON validation. Original preserved." >&2
-    rm -f "$TMPFILE"
-    rm -f "$config_file"
     exit 1
 fi
 
 # ─── Summary ────────────────────────────────────────────────────────────────
 
 tier=$(jq -r '._meta.privacy_tier' "$config_file" 2>/dev/null || echo "?")
-rm -f "$config_file"
 
 echo ""
 echo "Model config applied (tier $tier). Changes take effect on next OpenCode session restart."
