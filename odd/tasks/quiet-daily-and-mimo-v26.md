@@ -59,7 +59,17 @@ one OpenCode actually serves.
       exact `review.acknowledge-approved` executed once → envelope
       `gentle-ai.review-acknowledged/v1`, authority `burned`, consumed
       revision `sha256:c288e752…`.
-- [ ] Q8 Work-unit commit(s) with verification evidence.
+- [x] Q8 Work-unit commit(s) with verification evidence.
+      Evidence: commit `b7e63f6` on `feat/quiet-daily-mimo-v26`
+      (5 files, +182/−29). Focused checks: `bash -n session-start-hook.sh`
+      OK; sourced hook 0-byte success; `models-status` full report;
+      `select_role_model` orchestrator/design/apply →
+      `opencode/mimo-v2.6-flash-free` tier 3; `jq empty`
+      privacy-tier-registry.json OK. Runtime: `models-status` printed the
+      daily report on demand. Rollback: revert `session-start-hook.sh`,
+      `privacy-tier-registry.json`, `README.md`, and the two `odd/tasks/`
+      docs in `b7e63f6` without touching unrelated work. Delivery:
+      ask-on-risk, 211 authored lines < 400 → single PR, no chain.
 
 ## Acceptance criteria
 
@@ -73,5 +83,12 @@ one OpenCode actually serves.
 
 - 2026-09-23: created; diagnosis complete (V2.5 server error refs
   err_396187d8 / err_46609582 / err_ddea9ab1; V2.6 OK).
-- 2026-09-23: Q1–Q7 done. Review `review-47c8fab3bcb43f8d` approved and
-  acknowledged (authority burned). Next: Q8 work-unit commit(s).
+- 2026-09-23: Q1–Q7 done. Prior review `review-47c8fab3bcb43f8d` on
+  `c6b8973` approved and acknowledged (authority burned).
+- 2026-09-23: Q8 done — commit `b7e63f6` on `feat/quiet-daily-mimo-v26`.
+  Feature complete; delivery strategy ask-on-risk / single PR (211 lines).
+- 2026-09-23: RDD assess on `b7e63f6` vs `c6b8973` → risk `high`
+  (`session-start-hook.sh` shell_process). Consent granted; 4R review
+  `review-1c359e6ebf4b97d0` approved (10 advisory non-blocking findings);
+  exact acknowledge executed → authority `burned`, consumed revision
+  `sha256:520b51ea…`. Delivery still human-owned under ordinary policy.
