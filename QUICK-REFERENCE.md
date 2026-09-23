@@ -9,7 +9,9 @@
 | 3 | Model Improvement | MiMo, Ling Flash, Big Pickle |
 | 4 | Accept All | All free models (see registry notes) |
 
-Your configured tier: **3** (`.privacy-config`).
+Your configured tier is **defined once** in `.privacy-config`
+(`privacy_max_tier`) — scripts load it via `load_privacy_tier`; do not
+hardcode it here.
 
 ## Quick Setup
 
@@ -24,7 +26,7 @@ Your configured tier: **3** (`.privacy-config`).
 ./check-model-changes.sh
 
 # 4. On-demand daily report + apply (hook must be sourced)
-models-status
+models-apply
 ```
 
 ## How assignment works (model-agnostic)
@@ -57,4 +59,4 @@ models-status
 1. Confirm privacy tier: `./privacy-setup.sh`
 2. Get model assignments: `./model-selector.sh`
 3. Check for changes: `./check-model-changes.sh`
-4. Daily report on demand: `models-status`
+4. Daily report + apply on demand: `models-apply`

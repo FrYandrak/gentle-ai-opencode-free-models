@@ -21,8 +21,8 @@
 
 ### 4. Model selection infrastructure
 - ✅ Registry-driven role selection (`select-role-model.sh`)
-- ✅ Quiet daily hook + on-demand `models-status`
-- ✅ Privacy tier setup (`privacy-setup.sh`) — your tier: 3
+- ✅ Quiet daily hook + on-demand `models-apply`
+- ✅ Privacy tier setup (`privacy-setup.sh`) — value lives in `.privacy-config` (`privacy_max_tier`)
 - ✅ Feature documents in `odd/tasks/`
 
 ## Model testing: cancelled
@@ -36,9 +36,9 @@ Baseline tests, `test-models.sh`, and `COMPARISON-MATRIX.md` scoring were cancel
 2. Set/confirm privacy tier if needed: `./privacy-setup.sh`
 
 ### Ongoing
-1. **Monitor model availability** — free models change; daily hook + `models-status` report on demand
+1. **Monitor model availability** — free models change; daily hook + `models-apply` report+apply on demand
 2. **Refine assignments** — registry `role_chains` is the single source of truth
-3. Deliver open work via PR #1 (`feat/quiet-daily-hook`)
+3. PR #1 (`feat/quiet-daily-hook`) merged to `master` — no open delivery
 
 ## Key Commands
 
@@ -47,7 +47,7 @@ Baseline tests, `test-models.sh`, and `COMPARISON-MATRIX.md` scoring were cancel
 gentle-ai doctor
 
 # On-demand model report + apply
-models-status   # after sourcing session-start-hook.sh
+models-apply   # after sourcing session-start-hook.sh
 
 # Set privacy preference
 ./privacy-setup.sh
@@ -71,5 +71,5 @@ If you encounter issues:
 
 ---
 
-**Status:** ✅ Selection system live; model-testing cancelled by design.
-**Next Action:** Merge PR #1 when ready.
+**Status:** ✅ Selection system live; model-testing cancelled by design; PR #1 merged.
+**Next Action:** None for delivery — use `./privacy-setup.sh` or `models-apply` as needed.
