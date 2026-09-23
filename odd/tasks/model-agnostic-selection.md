@@ -65,7 +65,10 @@ from script literals.
       greps, big-pickle display/fallback — no role-chain literals remain);
       `daily-check.sh` full run: SKIPPED (network/mutation); `check-model-changes.sh`:
       static/syntax only (interactive `read -p` path not forced).
-- [ ] T6 Work-unit commit (conventional commit). — parent to commit.
+- [x] T6 Work-unit commit (conventional commit). Evidence: `c6b8973`
+      `feat: registry-driven role selection via shared select-role-model lib`
+      (recorded 2026-09-23; 4R review `review-47c8fab3bcb43f8d` targets this
+      candidate).
 
 ## Intentional delta
 

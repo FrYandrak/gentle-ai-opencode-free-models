@@ -46,7 +46,7 @@
         "coding_agents",
         "multimodal_tasks"
       ],
-      "notes": "Native multimodal (text/image/video/audio). Best token efficiency — 50% fewer tokens than Muse Spark for same tasks."
+      "notes": "Native multimodal (text/image/video/audio). Best token efficiency — 50% fewer tokens than Muse Spark for same tasks. BROKEN as of 2026-09-23: listed on Zen /v1/models but every inference returns a server error (err_396187d8, err_46609582, err_ddea9ab1). Prefer opencode/mimo-v2.6-flash-free; kept only as chain fallback."
     },
     "opencode/nemotron-3-ultra-free": {
       "name": "Nemotron 3 Ultra Free",
@@ -213,16 +213,74 @@
     }
   },
   "role_chains": {
-    "orchestrator": ["opencode/mimo-v2.5-free","opencode/mimo-v2.6-flash-free","opencode/nemotron-3-ultra-free","opencode/big-pickle"],
-    "explore":      ["opencode/nemotron-3-ultra-free","opencode/mimo-v2.5-free","opencode/mimo-v2.6-flash-free","opencode/big-pickle"],
-    "research":     ["opencode/nemotron-3-ultra-free","opencode/mimo-v2.5-free","opencode/mimo-v2.6-flash-free","opencode/big-pickle"],
-    "design":       ["opencode/mimo-v2.5-free","opencode/mimo-v2.6-flash-free","opencode/nemotron-3-ultra-free","opencode/big-pickle"],
-    "spec":         ["opencode/ling-3.0-flash-fin-free","opencode/nemotron-3.5-lightning-free","opencode/mimo-v2.5-free","opencode/mimo-v2.6-flash-free","opencode/big-pickle"],
-    "tasks":        ["opencode/ling-3.0-flash-fin-free","opencode/nemotron-3.5-lightning-free","opencode/mimo-v2.5-free","opencode/mimo-v2.6-flash-free","opencode/big-pickle"],
-    "archive":      ["opencode/ling-3.0-flash-fin-free","opencode/nemotron-3.5-lightning-free","opencode/mimo-v2.5-free","opencode/mimo-v2.6-flash-free","opencode/big-pickle"],
-    "apply":        ["opencode/mimo-v2.5-free","opencode/mimo-v2.6-flash-free","opencode/nemotron-3.5-lightning-free","opencode/big-pickle"],
-    "verify":       ["opencode/nemotron-3.5-lightning-free","opencode/nemotron-3-ultra-free","opencode/ling-3.0-flash-fin-free","opencode/mimo-v2.6-flash-free","opencode/big-pickle"],
-    "default":      ["opencode/mimo-v2.5-free","opencode/mimo-v2.6-flash-free","opencode/nemotron-3-ultra-free","opencode/big-pickle"]
+    "orchestrator": [
+      "opencode/mimo-v2.6-flash-free",
+      "opencode/mimo-v2.5-free",
+      "opencode/nemotron-3-ultra-free",
+      "opencode/big-pickle"
+    ],
+    "explore": [
+      "opencode/nemotron-3-ultra-free",
+      "opencode/mimo-v2.6-flash-free",
+      "opencode/mimo-v2.5-free",
+      "opencode/big-pickle"
+    ],
+    "research": [
+      "opencode/nemotron-3-ultra-free",
+      "opencode/mimo-v2.6-flash-free",
+      "opencode/mimo-v2.5-free",
+      "opencode/big-pickle"
+    ],
+    "design": [
+      "opencode/mimo-v2.6-flash-free",
+      "opencode/mimo-v2.5-free",
+      "opencode/nemotron-3-ultra-free",
+      "opencode/big-pickle"
+    ],
+    "spec": [
+      "opencode/ling-3.0-flash-fin-free",
+      "opencode/nemotron-3.5-lightning-free",
+      "opencode/mimo-v2.6-flash-free",
+      "opencode/mimo-v2.5-free",
+      "opencode/big-pickle"
+    ],
+    "tasks": [
+      "opencode/ling-3.0-flash-fin-free",
+      "opencode/nemotron-3.5-lightning-free",
+      "opencode/mimo-v2.6-flash-free",
+      "opencode/mimo-v2.5-free",
+      "opencode/big-pickle"
+    ],
+    "archive": [
+      "opencode/ling-3.0-flash-fin-free",
+      "opencode/nemotron-3.5-lightning-free",
+      "opencode/mimo-v2.6-flash-free",
+      "opencode/mimo-v2.5-free",
+      "opencode/big-pickle"
+    ],
+    "apply": [
+      "opencode/mimo-v2.6-flash-free",
+      "opencode/mimo-v2.5-free",
+      "opencode/nemotron-3.5-lightning-free",
+      "opencode/big-pickle"
+    ],
+    "verify": [
+      "opencode/nemotron-3.5-lightning-free",
+      "opencode/nemotron-3-ultra-free",
+      "opencode/ling-3.0-flash-fin-free",
+      "opencode/mimo-v2.6-flash-free",
+      "opencode/big-pickle"
+    ],
+    "default": [
+      "opencode/mimo-v2.6-flash-free",
+      "opencode/mimo-v2.5-free",
+      "opencode/nemotron-3-ultra-free",
+      "opencode/big-pickle"
+    ]
   },
-  "role_aliases": { "documentation": "spec", "code_generation": "apply", "quick_checks": "verify" }
+  "role_aliases": {
+    "documentation": "spec",
+    "code_generation": "apply",
+    "quick_checks": "verify"
+  }
 }
