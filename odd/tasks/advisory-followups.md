@@ -30,7 +30,7 @@ User approved all three after PR #1 merge explanation:
 - [x] T2 Docs: tier comes from `.privacy-config` only; remove hardcoded user-facing `3` where it states current config.
 - [x] T3 Naming: correct `feat/quiet-daily-mimo-v26` → `feat/quiet-daily-hook`; clear stale "merge PR #1" next actions; align ODD cross-links.
 - [x] T4 Verify: `bash -n` hook; source hook defines `models-apply`; no leftover `models-status` in active docs/code; grep clean for wrong branch name (historical rename notes only).
-- [ ] T5 Work-unit commit + RDD assess on the commit.
+- [x] T5 Work-unit commit + RDD assess on the commit.
 
 ## Acceptance criteria
 
