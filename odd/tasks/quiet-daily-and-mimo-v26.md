@@ -70,6 +70,9 @@ one OpenCode actually serves.
       `privacy-tier-registry.json`, `README.md`, and the two `odd/tasks/`
       docs in `b7e63f6` without touching unrelated work. Delivery:
       ask-on-risk, 211 authored lines < 400 → single PR, no chain.
+      RDD high_risk on b7e63f6; consent granted; 4R review
+      `review-1c359e6ebf4b97d0` approved and acknowledged (authority
+      burned).
 
 ## Acceptance criteria
 
