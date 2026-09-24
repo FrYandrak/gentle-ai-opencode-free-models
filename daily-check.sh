@@ -128,6 +128,9 @@ apply_registry_changes() {
                 evidence: ("UNVERIFIED — auto-added " + $ts + ". Default tier 4 per free-only policy: unknown privacy = maximum exposure. Upgrade only after verified privacy evidence."),
                 privacy_url: null,
                 context_window: 262144,
+                # output_limit (not context_window) is the binding parameter
+                # for subagents that emit large payloads — see selection_rules
+                # in privacy-tier-registry.json.
                 output_limit: 131072,
                 tool_call: true,
                 best_for: []

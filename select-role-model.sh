@@ -30,6 +30,9 @@ load_privacy_tier() {
 # gates (free-only AND exists in .models AND numeric privacy_tier prefix
 # <= MAX_TIER; missing privacy_tier counts as tier 4). First match wins.
 # Always returns 0.
+# Note: this gate is tier-driven; output_limit is the binding parameter for
+# subagents that emit large payloads (review lenses, reports) — chain them
+# via role_chains.review / selection_rules, not via this filter.
 select_role_model() {
     local role="${1:-}"
     local max_tier="${2:-}"

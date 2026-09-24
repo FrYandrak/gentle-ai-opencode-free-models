@@ -39,6 +39,8 @@ declare -A AGENT_ROLES=(
 )
 
 # Agent names that exist in opencode.jsonc as sdd-*-free-models
+# review-* agents emit large JSON payloads; they require a model with
+# output_limit >= 128000 (see "Model selection rules" in README)
 AGENT_NAMES=(
     "gentle-orchestrator"
     "sdd-orchestrator-free-models"
@@ -53,15 +55,24 @@ AGENT_NAMES=(
     "sdd-init-free-models"
     "sdd-onboard-free-models"
     "sdd-propose-free-models"
+    "review-risk"
+    "review-readability"
+    "review-reliability"
+    "review-resilience"
+    "review-refuter"
 )
 
 # Also emit agent → role pairs for the single jq pass below
-# (gentle-orchestrator → orchestrator; sdd-<suffix>-free-models → suffix,
-# with the AGENT_ROLES override for non-identity mappings).
+# (gentle-orchestrator → orchestrator; review-* → review;
+# sdd-<suffix>-free-models → suffix, with the AGENT_ROLES override for
+# non-identity mappings).
 pairs=""
 for agent_name in "${AGENT_NAMES[@]}"; do
     if [ "$agent_name" = "gentle-orchestrator" ]; then
         role="orchestrator"
+    elif [[ "$agent_name" == review-* ]]; then
+        # review-* → review: large-payload chain (output_limit >= 128000)
+        role="review"
     else
         suffix="${agent_name#sdd-}"
         suffix="${suffix%-free-models}"
@@ -74,8 +85,10 @@ done
 # algorithm in select-role-model.sh), one name lookup per agent, and JSON
 # emission via jq -n --arg (no string concatenation). The top-level
 # NONE → big-pickle fallback is intentional (always-free default) and
-# must stay exactly as written here.
-jq -n \
+# must stay exactly as written here. Output is captured so the guard below
+# can inspect it before it reaches stdout (stdout must stay pure JSON for
+# apply-model-config.sh).
+generated=$(jq -n \
     --slurpfile reg "$REGISTRY_FILE" \
     --arg pairs "$pairs" \
     --argjson tier "$TIER" \
@@ -121,4 +134,23 @@ jq -n \
                 })
         )
     }
-'
+')
+
+# OUTPUT_LIMIT GUARD — see odd/tasks/review-lens-model.md
+# Warn (stderr only — stdout stays pure JSON for apply-model-config.sh) when
+# an assigned model cannot emit large payloads: output_limit < 64000 per the
+# registry. Warning only — a regeneration never hard-fails (exit stays 0).
+while IFS=$'\t' read -r guard_agent guard_model guard_limit; do
+    [ -n "$guard_agent" ] || continue
+    echo "WARNING: agent '$guard_agent' assigned model '$guard_model' with output_limit=$guard_limit (< 64000)." >&2
+    echo "  Large-payload subagents need a bigger budget — see \"Model selection rules\" in README / selection_rules in privacy-tier-registry.json." >&2
+done < <(jq -r --slurpfile reg "$REGISTRY_FILE" '
+    .agents | to_entries[]
+    | select(.value.model != "NONE")
+    | .key as $agent | .value.model as $model
+    | ($reg[0].models[$model].output_limit // 0) as $ol
+    | select($ol < 64000)
+    | [$agent, $model, $ol] | @tsv
+' <<<"$generated")
+
+printf '%s\n' "$generated"

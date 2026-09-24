@@ -97,6 +97,21 @@ Models are stored in `privacy-tier-registry.json` with privacy tier, provider, c
 
 When a new model appears on Zen it is added with a **default tier**. Verify its privacy policy and adjust the registry if needed — do not assume the default matches your threat model.
 
+### Model selection rules
+
+**For subagents that emit large payloads, `output_limit` — not `context_window` — is the binding model parameter.**
+
+| Concept | Meaning |
+|---------|---------|
+| `context_window` | Bounds how much INPUT fits. It says nothing about what the model can emit. |
+| `output_limit` | Max output tokens per response — this is what a `finish: "length"` death exhausts. |
+| Large-payload threshold | Models with `output_limit` < **64000** must NOT be assigned to subagents that emit large structured payloads (review lenses, reports). `generate-agent-config.sh` prints a warning when this happens. |
+| Review chain requirement | `review-*` agents emit large JSON lenses, so the `review` role chain only contains models with `output_limit` ≥ **128000** (`nemotron-3-ultra-free`, `nemotron-3.5-lightning-free`). `mimo`, `ling`, and `big-pickle` are tier-eligible but excluded — `output_limit` 32000 reproduces the failure. |
+
+When `output_limit` is too small the model burns its whole budget reasoning and emits nothing (`opencode_task_output_empty`, confirmed via `finish: "length"` in `opencode.db`). Historical failure: `mimo-v2.6-flash-free` at output 32000 died at `reasoning=32000/output=0`. The full rule lives in the `selection_rules` block of `privacy-tier-registry.json`.
+
+**Sync risk:** `review-*` agent blocks are marked `__managed_by: gentle-ai/sdd`, so `gentle-ai sync` may revert assigned models. Re-apply with `./apply-model-config.sh`.
+
 ### Known non-goals
 
 - **Not a benchmark suite.** This project does not score model quality; it assigns models. (Comparative testing was deliberately dropped to keep the free-token budget for real work.)
@@ -123,6 +138,7 @@ This is a **server-side free-tier limit**, not a config bug here. The same model
 | Wrong privacy ceiling | Stale or hand-edited `.privacy-config` | Re-run `./privacy-setup.sh` |
 | New model missing or mis-tiered | Registry default not reviewed | Edit `privacy-tier-registry.json`, re-run `generate-agent-config.sh` |
 | Sub-agent stream rejected | Free-tier server limit (see above) | Retry after a pause |
+| 4R lens fails with `opencode_task_output_empty` (`opencode.db` shows `finish: "length"`) | Assigned model's `output_limit` too small — reasoning consumed the whole budget | Assign `review-*` agents a model with `output_limit` ≥ 128000 via the `review` role chain; re-run `./generate-agent-config.sh && ./apply-model-config.sh` |
 
 ## Repository notes
 
