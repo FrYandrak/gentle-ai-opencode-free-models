@@ -18,6 +18,9 @@ models-apply
 # 4. Shared selector lib (sourced by scripts; also usable directly)
 source ./select-role-model.sh && load_privacy_tier \
   && select_role_model apply "$PRIVACY_TIER"
+
+# 5. Upstream drift check (once per day; --force to re-run)
+./check-upstream.sh
 ```
 
 ## Privacy Tiers

@@ -88,6 +88,7 @@ models-apply
 | `generate-agent-config.sh` | Generate role→model mapping from tier + registry |
 | `apply-model-config.sh` | Patch `opencode.jsonc` with generated assignments |
 | `session-start-hook.sh` | Orchestrate daily check + config application |
+| `check-upstream.sh` | Detect upstream Gentle-AI releases that could affect agents, config, or contracts (`--force` to re-run same day) |
 | `select-role-model.sh` | Shared helpers (including `load_privacy_tier`) |
 
 ## Model registry
