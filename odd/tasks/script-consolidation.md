@@ -54,7 +54,7 @@ Exhaustive audit (two delegated maps) found: ~150 duplicated lines between daily
   - `check-model-changes.sh`: deleted (git rm in 50fc3db)
   - synthetic batch test (add/exists-skip/remove/stamp, no leftover temps): OK
 - [x] T7 Work-unit commits + RDD assess each; handle review if due. — commits: 528ba81 (registry chore), fe862e9 (T1+T2+T5), ad56f1e (T3), 50fc3db (T4 + docs). RDD assess: N/A in this session (no review tooling available; parent handles push/review — native review explicitly not started per instruction).
-- [ ] T8 Commit registry chore (space-bunny-free); push docs b3c9c0c + registry + code to origin/master; confirm clean status. — registry chore committed as 528ba81; PUSH PENDING (parent: master ahead of origin/master by 6: b3c9c0c, 528ba81, fe862e9, ad56f1e, 50fc3db, plus this docs commit).
+- [x] T8 Commit registry chore (space-bunny-free); push docs b3c9c0c + registry + code to origin/master; confirm clean status. — registry chore committed as 528ba81; PUSHED 2026-09-24: 39b95c3..379b448 (7 commits, incl. MIT LICENSE + public README 379b448). 4R refuter abandoned after 18 free-tier failures (prior user decision: push without refuter). Repo renamed gentle-ai-opencode-free-models and flipped PUBLIC same day. Clean status, local == remote.
 
 ## Acceptance criteria
 
