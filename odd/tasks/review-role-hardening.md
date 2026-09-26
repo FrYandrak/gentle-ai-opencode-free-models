@@ -132,6 +132,22 @@ model with the **highest output_limit** among those with sufficient capacity
       used by both the generator (exit 1) and the lib (stderr warning + NONE).
       Verified: byte-equivalent regen vs pre-refactor (modulo timestamp),
       identical guard stderr, fail-closed test green both sides.
+- [x] T9 Native review `review-15f683aae201bebd` for commit `a49fef2`
+      (4 lenses) closed `escalated` (informational, unknown causality:
+      R3-001..003 + R4-001..003). Maintainer triage: **all six severe
+      findings false — declined with evidence, no source changes:**
+      - R4-001/R4-003: `registry_thresholds_present` exits 1 on missing
+        thresholds and 5 on malformed JSON (only valid → 0); end-to-end
+        generate on a malformed registry exits 1 with 0 bytes stdout.
+      - R4-002: null/malformed `output_limit` → `// 0` → excluded from
+        dynamic review candidates = fail-closed **by design** (unverifiable
+        limits must never become reviewers).
+      - R3-001/R3-002/R3-003: the function tail converts empty → `NONE`
+        (live: `select_role_model review 1` → `NONE`, exit 0); triples never
+        carry `""`, so the guard's `!= "NONE"` filter never sees one.
+      - R4-004/R4-006/R3-005 target dead paths (generate hard-exits before
+        the lib warning or guard can run without thresholds); R2-7 attacks a
+        sentence that explicitly describes both refusal behaviors.
 
 ## Acceptance criteria
 
@@ -172,6 +188,7 @@ model with the **highest output_limit** among those with sufficient capacity
   dynamic branch + guard diffs read line by line: PASS.
 
 T0–T6 done by writer `general` + parent spot check. T8 (findings fixes) done
-by writer `general` + parent spot check (byte-equivalence verified).
-T7: work-unit commit done; RDD assess follows, then push after the double
-privacy scan the user requested.
+by writer `general` + parent spot check (byte-equivalence verified). T9
+review triage: all six severe findings declined with evidence (see T9).
+T7: commits `a87d6cc` + `a49fef2` done with RDD assess + review cycles;
+push after the double privacy scan the user requested.
