@@ -29,6 +29,9 @@ LOG_FILE="$SCRIPT_DIR/results/check-upstream.log"
 GEN_AGENT_CONFIG="$SCRIPT_DIR/generate-agent-config.sh"
 OPENCODE_CONFIG="${OPENCODE_CONFIG:-$HOME/.config/opencode/opencode.jsonc}"
 GENTLE_AI_BIN="${GENTLE_AI_BIN:-gentle-ai}"
+CURL_MAX_TIME=15          # curl --max-time (seconds) for every GitHub API call
+RELEASES_PER_PAGE=10      # page size for the releases listing
+MAX_DIFF_SHOWN=30         # max upstream impact files printed in Check 3
 
 # Colors (mirrors daily-check.sh L22-29)
 RED='\033[0;31m'
@@ -153,7 +156,7 @@ fetch_latest_tag() {
             return 0
         fi
     fi
-    body=$(curl -s --max-time 15 "https://api.github.com/repos/$UPSTREAM_REPO/releases/latest" 2>/dev/null || true)
+    body=$(curl -s --max-time "$CURL_MAX_TIME" "https://api.github.com/repos/$UPSTREAM_REPO/releases/latest" 2>/dev/null || true)
     if [ -n "$body" ] && printf '%s' "$body" | jq -e '.tag_name' >/dev/null 2>&1; then
         UPSTREAM_TAG=$(printf '%s' "$body" | jq -r '.tag_name' 2>/dev/null || true)
         if [ -n "$UPSTREAM_TAG" ]; then
@@ -178,7 +181,7 @@ fetch_compare_files() {
             return 0
         fi
     fi
-    body=$(curl -s --max-time 15 "https://api.github.com/repos/$UPSTREAM_REPO/compare/$range" 2>/dev/null || true)
+    body=$(curl -s --max-time "$CURL_MAX_TIME" "https://api.github.com/repos/$UPSTREAM_REPO/compare/$range" 2>/dev/null || true)
     if [ -n "$body" ] && printf '%s' "$body" | jq -e '.files' >/dev/null 2>&1; then
         COMPARE_FILES=$(printf '%s' "$body" | jq -r '.files[]?.filename' 2>/dev/null || true)
         FETCH_OK=true
@@ -192,14 +195,14 @@ fetch_releases_json() {
     FETCH_SOURCE=""
     local out="" body=""
     if command -v gh &>/dev/null; then
-        if out=$(gh api "repos/$UPSTREAM_REPO/releases?per_page=10" 2>/dev/null); then
+        if out=$(gh api "repos/$UPSTREAM_REPO/releases?per_page=$RELEASES_PER_PAGE" 2>/dev/null); then
             RELEASES_JSON="$out"
             FETCH_OK=true
             FETCH_SOURCE="gh"
             return 0
         fi
     fi
-    body=$(curl -s --max-time 15 "https://api.github.com/repos/$UPSTREAM_REPO/releases?per_page=10" 2>/dev/null || true)
+    body=$(curl -s --max-time "$CURL_MAX_TIME" "https://api.github.com/repos/$UPSTREAM_REPO/releases?per_page=$RELEASES_PER_PAGE" 2>/dev/null || true)
     if [ -n "$body" ] && printf '%s' "$body" | jq -e 'type == "array"' >/dev/null 2>&1; then
         RELEASES_JSON="$body"
         FETCH_OK=true
@@ -222,7 +225,7 @@ fetch_contract_versions() {
         fi
     fi
     if [ -z "$dirs" ]; then
-        body=$(curl -s --max-time 15 "https://api.github.com/repos/$UPSTREAM_REPO/contents/contracts" 2>/dev/null || true)
+        body=$(curl -s --max-time "$CURL_MAX_TIME" "https://api.github.com/repos/$UPSTREAM_REPO/contents/contracts" 2>/dev/null || true)
         if [ -n "$body" ] && printf '%s' "$body" | jq -e 'type == "array"' >/dev/null 2>&1; then
             dirs=$(printf '%s' "$body" | jq -r '.[].name' 2>/dev/null || true)
             FETCH_SOURCE="curl"
@@ -240,7 +243,7 @@ fetch_contract_versions() {
         if [ "$FETCH_SOURCE" = "gh" ]; then
             vers=$(gh api "repos/$UPSTREAM_REPO/contents/contracts/$name" --jq '.[].name' 2>/dev/null || true)
         else
-            b2=$(curl -s --max-time 15 "https://api.github.com/repos/$UPSTREAM_REPO/contents/contracts/$name" 2>/dev/null || true)
+            b2=$(curl -s --max-time "$CURL_MAX_TIME" "https://api.github.com/repos/$UPSTREAM_REPO/contents/contracts/$name" 2>/dev/null || true)
             if [ -n "$b2" ] && printf '%s' "$b2" | jq -e 'type == "array"' >/dev/null 2>&1; then
                 vers=$(printf '%s' "$b2" | jq -r '.[].name' 2>/dev/null || true)
             fi
@@ -265,10 +268,17 @@ detect_local_version() {
     LOCAL_VER=$(printf '%s' "$out" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
 }
 
-# Sets VERDICT to in-sync | behind | ahead (local perspective).
+# Sets VERDICT to in-sync | behind | ahead | invalid (local perspective).
+# Invalid/malformed inputs set VERDICT="invalid" and return 0 — the script
+# runs under set -e, so this function must never return non-zero.
 VERDICT="unknown"
 compare_versions() {
     local a="$1" b="$2" newest=""
+    if ! [[ "$a" =~ ^[0-9]+(\.[0-9]+)+([-+][0-9A-Za-z.-]+)?$ ]] ||
+       ! [[ "$b" =~ ^[0-9]+(\.[0-9]+)+([-+][0-9A-Za-z.-]+)?$ ]]; then
+        VERDICT="invalid"
+        return 0
+    fi
     if [ "$a" = "$b" ]; then
         VERDICT="in-sync"
         return 0
@@ -299,8 +309,16 @@ if [ "$FETCH_OK" = false ] || [ -z "$UPSTREAM_TAG" ]; then
     log "WARNING: upstream latest-tag fetch failed"
     WARN_COUNT=$((WARN_COUNT + 1))
 else
-    echo -e "${GREEN}✓${NC} Latest upstream release: ${CYAN}$UPSTREAM_TAG${NC} ${DIM}(via $FETCH_SOURCE)${NC}"
-    UPSTREAM_VER="${UPSTREAM_TAG#v}"
+    if [[ "$UPSTREAM_TAG" =~ ^v[0-9]+(\.[0-9]+)+([-+][0-9A-Za-z.-]+)?$ ]]; then
+        echo -e "${GREEN}✓${NC} Latest upstream release: ${CYAN}$UPSTREAM_TAG${NC} ${DIM}(via $FETCH_SOURCE)${NC}"
+        UPSTREAM_VER="${UPSTREAM_TAG#v}"
+    else
+        echo -e "${YELLOW}⚠ Unexpected upstream tag format: '$UPSTREAM_TAG' — tag not a vN.N.N release, downstream checks skipped.${NC}"
+        log "WARNING: unexpected upstream tag format"
+        WARN_COUNT=$((WARN_COUNT + 1))
+        UPSTREAM_TAG=""
+        UPSTREAM_VER=""
+    fi
 fi
 
 # ── Check 2: Local version vs upstream → drift verdict ───────────────────────
@@ -326,6 +344,9 @@ else
             echo -e "${CYAN}${BOLD}↑ AHEAD:${NC} local $LOCAL_VER > upstream $UPSTREAM_TAG (pre-release or local build?)"
             ADVISORY_COUNT=$((ADVISORY_COUNT + 1))
             ;;
+        invalid)
+            echo -e "${YELLOW}⚠ Malformed version string(s): local '$LOCAL_VER' vs upstream '$UPSTREAM_VER' — drift verdict skipped.${NC}"
+            ;;
     esac
 fi
 
@@ -337,7 +358,7 @@ elif [ "$VERDICT" = "in-sync" ]; then
     echo -e "${GREEN}✓ Versions in sync — no diff to inspect.${NC}"
 elif [ "$VERDICT" = "ahead" ]; then
     echo -e "${CYAN}Local is ahead of upstream — compare direction not applicable, skipped.${NC}"
-else
+elif [ "$VERDICT" = "behind" ]; then
     fetch_compare_files "v$LOCAL_VER" "v$UPSTREAM_VER"
     if [ "$FETCH_OK" = false ]; then
         echo -e "${YELLOW}⚠ Could not fetch compare v$LOCAL_VER...v$UPSTREAM_VER (network/API failure).${NC}"
@@ -355,19 +376,21 @@ else
                 if [ -z "$f" ]; then
                     continue
                 fi
-                if [ "$shown" -lt 30 ]; then
+                if [ "$shown" -lt "$MAX_DIFF_SHOWN" ]; then
                     echo "    • $f"
                     shown=$((shown + 1))
                 fi
             done <<< "$filtered"
-            if [ "$impact_count" -gt 30 ]; then
-                echo -e "${DIM}    … and $((impact_count - 30)) more:${NC}"
+            if [ "$impact_count" -gt "$MAX_DIFF_SHOWN" ]; then
+                echo -e "${DIM}    … and $((impact_count - MAX_DIFF_SHOWN)) more:${NC}"
                 echo -e "${DIM}    https://github.com/$UPSTREAM_REPO/compare/v$LOCAL_VER...v$UPSTREAM_VER${NC}"
             fi
             log "ADVISORY: $impact_count potential impact files since v$LOCAL_VER"
             ADVISORY_COUNT=$((ADVISORY_COUNT + 1))
         fi
     fi
+else
+    echo -e "${YELLOW}⚠ Drift verdict unavailable — diff surface skipped.${NC}"
 fi
 
 # ── Check 4: Release-notes keyword scan ───────────────────────────────────────
@@ -410,13 +433,12 @@ elif [ ! -f "$OPENCODE_CONFIG" ]; then
 else
     # opencode.jsonc is JSONC: jq fails if comments are present. Try the
     # file as-is first; on failure strip only FULL-LINE // comments (a
-    # naive 's|//.*||' would corrupt https:// URLs inside strings) and retry.
+    # naive 's|//.*||' would corrupt https:// URLs inside strings) and pipe
+    # the stripped stream straight into jq on stdin — no temp file, so an
+    # interrupt cannot leak one.
     config_keys=""
     if ! config_keys=$(jq -r '.agent // {} | keys[]' "$OPENCODE_CONFIG" 2>/dev/null); then
-        tmp_jsonc=$(mktemp)
-        sed 's|^[[:space:]]*//.*||' "$OPENCODE_CONFIG" > "$tmp_jsonc" || true
-        config_keys=$(jq -r '.agent // {} | keys[]' "$tmp_jsonc" 2>/dev/null || true)
-        rm -f "$tmp_jsonc"
+        config_keys=$(sed 's|^[[:space:]]*//.*||' "$OPENCODE_CONFIG" | jq -r '.agent // {} | keys[]' 2>/dev/null || true)
     fi
     expected_count=$(printf '%s\n' "$agent_names" | grep -c . || true)
     missing_names=""

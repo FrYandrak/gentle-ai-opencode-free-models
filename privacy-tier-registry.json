@@ -1,12 +1,13 @@
 {
   "version": "2.0.0",
-  "last_updated": "2026-09-24T21:54:02+02:00",
+  "last_updated": "2026-09-25T19:13:52+02:00",
   "source": "OpenCode Zen API + provider documentation + benchmarks",
   "selection_rules": {
-    "output_limit_rule": "For subagents that must EMIT large payloads (review lens JSON, spec/tasks reports), the binding model parameter is output_limit (max output tokens per response), NOT context_window. context_window only bounds how much INPUT fits; output_limit is what a finish: \"length\" death exhausts. When output_limit is too small, the model burns its whole budget reasoning and emits nothing (opencode_task_output_empty, confirmed via finish: \"length\" in opencode.db). Historical failure: opencode/mimo-v2.6-flash-free at output 32000 died at reasoning=32000/output=0.",
+    "output_limit_rule": "For subagents that must EMIT large payloads (review lens JSON, spec/tasks reports), the binding model parameter is output_limit (max output tokens per response), NOT context_window. context_window only bounds how much INPUT fits; output_limit is what a finish: \"length\" death exhausts. When output_limit is too small, the model burns its whole budget reasoning and emits nothing (the provider stops with finish reason \"length\" — reproduced locally). Historical failure: opencode/mimo-v2.6-flash-free at output 32000 exhausted its reasoning budget before emitting any output.",
     "large_payload_threshold": "models with output_limit < 64000 must NOT be selected for subagents that emit large structured payloads (review lenses, reports)",
     "review_role_chain": "The review chain lists only tier-eligible models with output_limit >= 128000: opencode/nemotron-3-ultra-free and opencode/nemotron-3.5-lightning-free. mimo, ling-3.0-flash-fin, and big-pickle are tier-eligible but excluded because output_limit 32000 (ling: 32768) reproduces the failure.",
-    "limits_source": "https://models.dev/api.json — limits corrected 2026-09-24"
+    "limits_source": "https://models.dev/api.json — limits corrected 2026-09-24",
+    "limits_reverify": "Re-verify limits: fetch https://models.dev/api.json and compare context_window/output_limit for every model referenced by role_chains against the registry entries; refresh last_updated with the check date. Run when a new model appears on Zen and at least quarterly, so the corrected limits cannot go silently stale."
   },
   "privacy_tiers": {
     "1_strict": {
