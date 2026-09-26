@@ -47,7 +47,7 @@ Defined once in `.privacy-config` (`privacy_max_tier`) via `./privacy-setup.sh` 
 
 ## Assignment (model-agnostic)
 
-- Source of truth: `privacy-tier-registry.json` → `role_chains` / `role_aliases`
-- Shared selector: `select-role-model.sh` (free-only, `tier <= max_tier`, Big Pickle terminal)
+- Source of truth: `privacy-tier-registry.json` → `selection_rules` / `role_chains` / `role_aliases`
+- Shared selector: `select-role-model.sh` (free-only, `tier <= max_tier`; Big Pickle terminal for non-review chains; review binds dynamically via `selection_rules.thresholds.role_minimums`)
 - Scripts source the lib — catalog changes touch the registry only
 - Model-testing harness is **cancelled** (free-token budget)

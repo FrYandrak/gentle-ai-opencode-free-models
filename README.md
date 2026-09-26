@@ -1,6 +1,8 @@
 # OpenCode Free Models Selector for Gentle-AI
 
-[![Built with Gentle-AI](https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/docs/assets/brand/built-with-gentle-ai.png)](https://github.com/Gentleman-Programming/gentle-ai)
+<a href="https://github.com/Gentleman-Programming/gentle-ai">
+  <img width="220" src="https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/docs/assets/brand/built-with-gentle-ai.png" alt="Built with Gentle-AI" />
+</a>
 
 Privacy-aware, dynamic model assignment for **OpenCode Zen free models** in [Gentle-AI](https://github.com/Gentleman-Programming/gentle-ai) workflows.
 
@@ -105,10 +107,12 @@ When a new model appears on Zen it is added with a **default tier**. Verify its 
 |---------|---------|
 | `context_window` | Bounds how much INPUT fits. It says nothing about what the model can emit. |
 | `output_limit` | Max output tokens per response — this is what a `finish: "length"` death exhausts. |
-| Large-payload threshold | Models with `output_limit` < **64000** must NOT be assigned to subagents that emit large structured payloads (review lenses, reports). `generate-agent-config.sh` prints a warning when this happens. |
-| Review chain requirement | `review-*` agents emit large JSON lenses, so the `review` role chain only contains models with `output_limit` ≥ **128000** (`nemotron-3-ultra-free`, `nemotron-3.5-lightning-free`). `mimo`, `ling`, and `big-pickle` are tier-eligible but excluded — `output_limit` 32000 reproduces the failure. |
+| General warning threshold — **64000** (`thresholds.general_large_payload`) | Below this, a model must not be assigned to any subagent that emits large structured payloads (reports, lens JSON). `generate-agent-config.sh` prints a warning when the guard sees such an assignment. |
+| Review floor — **128000** (`thresholds.role_minimums.review`) | Review lenses are the heaviest payloads we emit, so the `review` role demands this much output headroom. A model below the floor can never become a reviewer. |
 
-When `output_limit` is too small the model burns its whole budget reasoning and emits nothing (`opencode_task_output_empty`, confirmed via `finish: "length"` in `opencode.db`). Historical failure: `mimo-v2.6-flash-free` at output 32000 died at `reasoning=32000/output=0`. The full rule lives in the `selection_rules` block of `privacy-tier-registry.json`.
+**Why two different numbers?** Both trace back to one observed failure: a model with an output budget of 32000 tokens died with `finish: "length"` after reasoning away its whole budget and emitting nothing (`mimo-v2.6-flash-free`, `reasoning=32000/output=0`, confirmed in `opencode.db`). The general warning sits at **2×** that failure — the zone where any large-payload subagent is at risk. The review floor sits at **4×** it — the headroom review-lens JSON needs once reasoning overhead is counted. The authoritative values live in **`privacy-tier-registry.json` → `selection_rules.thresholds`**: change the number there, re-run `./generate-agent-config.sh`, and behavior changes — no script edits.
+
+**Review role: dynamic selection, no fallback.** The `review` role has **no static chain**. On each generation, code picks the model with the **highest `output_limit`** among free, privacy-tier-eligible models that meet the review floor — automatically, as tiers and the model catalog change. `big-pickle` is **never** a reviewer (it remains the fallback for every other role — that difference is intentional). If no model qualifies at your tier, the review agents get `NONE` and `./apply-model-config.sh` prints a visible skip warning — never a silent low-limit assignment.
 
 **Sync risk:** `review-*` agent blocks are marked `__managed_by: gentle-ai/sdd`, so `gentle-ai sync` may revert assigned models. Re-apply with `./apply-model-config.sh`.
 
@@ -138,7 +142,7 @@ This is a **server-side free-tier limit**, not a config bug here. The same model
 | Wrong privacy ceiling | Stale or hand-edited `.privacy-config` | Re-run `./privacy-setup.sh` |
 | New model missing or mis-tiered | Registry default not reviewed | Edit `privacy-tier-registry.json`, re-run `generate-agent-config.sh` |
 | Sub-agent stream rejected | Free-tier server limit (see above) | Retry after a pause |
-| 4R lens fails with `opencode_task_output_empty` (`opencode.db` shows `finish: "length"`) | Assigned model's `output_limit` too small — reasoning consumed the whole budget | Assign `review-*` agents a model with `output_limit` ≥ 128000 via the `review` role chain; re-run `./generate-agent-config.sh && ./apply-model-config.sh` |
+| 4R lens fails with `opencode_task_output_empty` (`opencode.db` shows `finish: "length"`) | Assigned model's `output_limit` too small — reasoning consumed the whole budget | Reviewers are bound dynamically to the highest-`output_limit` model meeting `selection_rules.thresholds.role_minimums.review`; re-run `./generate-agent-config.sh && ./apply-model-config.sh` (if no model qualifies you get a visible skip warning, not a bad assignment) |
 
 ## Repository notes
 
@@ -161,4 +165,6 @@ MIT — see [LICENSE](LICENSE).
 
 ---
 
-[![Built with Gentle-AI](https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/docs/assets/brand/built-with-gentle-ai.png)](https://github.com/Gentleman-Programming/gentle-ai)
+<a href="https://github.com/Gentleman-Programming/gentle-ai">
+  <img width="220" src="https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/docs/assets/brand/built-with-gentle-ai.png" alt="Built with Gentle-AI" />
+</a>

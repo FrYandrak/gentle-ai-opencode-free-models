@@ -12,6 +12,16 @@ REGISTRY_FILE="$SCRIPT_DIR/privacy-tier-registry.json"
 # Shared registry-driven role selection (load_privacy_tier, select_role_model)
 source "$SCRIPT_DIR/select-role-model.sh"
 
+# Registry must expose selection_rules.thresholds (general_large_payload +
+# role_minimums) — the GUARD reads it and select_role_model is fail-closed
+# without it. No numeric fallback: a missing object is a hard error, not a
+# silent default. Uses the shared predicate in select-role-model.sh — R3-1
+# consistency (both callers refuse the same way).
+if ! registry_thresholds_present; then
+    echo '{"error": "privacy-tier-registry.json is missing selection_rules.thresholds (general_large_payload + role_minimums) — required by generate-agent-config.sh."}' >&2
+    exit 1
+fi
+
 # ─── Load privacy tier ──────────────────────────────────────────────────────
 
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -39,8 +49,9 @@ declare -A AGENT_ROLES=(
 )
 
 # Agent names that exist in opencode.jsonc as sdd-*-free-models
-# review-* agents emit large JSON payloads; they require a model with
-# output_limit >= 128000 (see "Model selection rules" in README)
+# review-* agents emit large JSON payloads; their model must clear
+# selection_rules.thresholds.role_minimums.review — enforced by
+# select_role_model in select-role-model.sh (single source of selection).
 AGENT_NAMES=(
     "gentle-orchestrator"
     "sdd-orchestrator-free-models"
@@ -62,58 +73,47 @@ AGENT_NAMES=(
     "review-refuter"
 )
 
-# Also emit agent → role pairs for the single jq pass below
+# Select models in bash via the shared lib (single source of truth — the
+# role→model algorithm lives ONLY in select-role-model.sh) and collect
+# agent|role|model triples for the JSON emission pass below
 # (gentle-orchestrator → orchestrator; review-* → review;
 # sdd-<suffix>-free-models → suffix, with the AGENT_ROLES override for
 # non-identity mappings).
-pairs=""
+selections=""
 for agent_name in "${AGENT_NAMES[@]}"; do
     if [ "$agent_name" = "gentle-orchestrator" ]; then
         role="orchestrator"
     elif [[ "$agent_name" == review-* ]]; then
-        # review-* → review: large-payload chain (output_limit >= 128000)
+        # review-* → review: dynamic selection via
+        # selection_rules.thresholds.role_minimums (highest output_limit)
         role="review"
     else
         suffix="${agent_name#sdd-}"
         suffix="${suffix%-free-models}"
         role="${AGENT_ROLES[$suffix]:-$suffix}"
     fi
-    pairs+="${agent_name}|${role}"$'\n'
+    model="$(select_role_model "$role" "$TIER")"
+    selections+="${agent_name}|${role}|${model}"$'\n'
 done
 
-# Single jq pass: role→model selection for every agent (mirrors the chain
-# algorithm in select-role-model.sh), one name lookup per agent, and JSON
-# emission via jq -n --arg (no string concatenation). The top-level
-# NONE → big-pickle fallback is intentional (always-free default) and
-# must stay exactly as written here. Output is captured so the guard below
-# can inspect it before it reaches stdout (stdout must stay pure JSON for
-# apply-model-config.sh).
+# JSON emission only — NO model selection happens here. Model selection
+# lives in select-role-model.sh (select_role_model) as the single source of
+# truth; this jq pass merely splits the agent|role|model triples computed
+# above and looks up display names. The top-level NONE → big-pickle fallback
+# is intentional (always-free default) and must stay exactly as written
+# here. Output is captured so the guard below can inspect it before it
+# reaches stdout (stdout must stay pure JSON for apply-model-config.sh).
 generated=$(jq -n \
     --slurpfile reg "$REGISTRY_FILE" \
-    --arg pairs "$pairs" \
+    --arg selections "$selections" \
     --argjson tier "$TIER" \
     --arg generated_at "$(date -Iseconds)" '
-    $reg[0] as $r
-    | ($r.role_aliases // {}) as $aliases
-    | ($r.role_chains // {}) as $chains
-    | ($r.models // {}) as $models
-    | def pick($role; $max):
-        ($aliases[$role] // $role) as $canon
-        | ($chains[$canon] // $chains.default // []) as $chain0
-        | (if (($chain0 | length) == 0 or ($chain0[-1] != "opencode/big-pickle"))
-           then ($chain0 + ["opencode/big-pickle"])
-           else $chain0 end) as $chain
-        | [ $chain[]
-            | . as $id
-            | select($id == "opencode/big-pickle" or ($id | endswith("-free")))
-            | select($models | has($id))
-            | ((($models[$id].privacy_tier // "4") | tostring | split("_")[0] | tonumber? // 4)) as $t
-            | select($t <= $max)
-          ][0] // empty;
-    ($pairs | split("\n")
-        | map(select(length > 0) | split("|") | {key: .[0], value: .[1]})
-        | from_entries) as $agent_roles
-    | (pick("orchestrator"; $tier) // "") as $orch
+    ($reg[0].models // {}) as $models
+    | ($selections | split("\n")
+        | map(select(length > 0) | split("|")
+            | {key: .[0], value: {role: .[1], model: .[2]}})
+        | from_entries) as $sel
+    | ($sel["gentle-orchestrator"].model // "") as $orch
     | {
         _meta: {
             generated_by: "generate-agent-config.sh",
@@ -125,12 +125,12 @@ generated=$(jq -n \
             )
         },
         agents: (
-            reduce ($agent_roles | to_entries[]) as $e ({};
-                (pick($e.value; $tier) // "NONE") as $m
-                | .[$e.key] = {
+            $sel | with_entries(
+                .value.model as $m
+                | .value = {
                     model: $m,
                     name: (if $m == "NONE" then $m else ($models[$m].name // $m) end),
-                    role: $e.value
+                    role: .value.role
                 })
         )
     }
@@ -138,19 +138,24 @@ generated=$(jq -n \
 
 # OUTPUT_LIMIT GUARD — see odd/tasks/review-lens-model.md
 # Warn (stderr only — stdout stays pure JSON for apply-model-config.sh) when
-# an assigned model cannot emit large payloads: output_limit < 64000 per the
-# registry. Warning only — a regeneration never hard-fails (exit stays 0).
-while IFS=$'\t' read -r guard_agent guard_model guard_limit; do
+# an assigned model cannot emit large payloads. Thresholds come from
+# selection_rules.thresholds in the registry: per agent,
+# max(general_large_payload, role_minimums[role] // 0). Warning only — a
+# regeneration never hard-fails (exit stays 0).
+while IFS=$'\t' read -r guard_agent guard_model guard_limit guard_threshold; do
     [ -n "$guard_agent" ] || continue
-    echo "WARNING: agent '$guard_agent' assigned model '$guard_model' with output_limit=$guard_limit (< 64000)." >&2
-    echo "  Large-payload subagents need a bigger budget — see \"Model selection rules\" in README / selection_rules in privacy-tier-registry.json." >&2
+    echo "WARNING: agent '$guard_agent' assigned model '$guard_model' with output_limit=$guard_limit (< threshold $guard_threshold)." >&2
+    echo "  Large-payload subagents need a bigger budget — see \"Model selection rules\" in README / selection_rules.thresholds in privacy-tier-registry.json." >&2
 done < <(jq -r --slurpfile reg "$REGISTRY_FILE" '
-    .agents | to_entries[]
+    ($reg[0].selection_rules.thresholds.general_large_payload | tonumber) as $general
+    | ($reg[0].selection_rules.thresholds.role_minimums // {}) as $role_minimums
+    | .agents | to_entries[]
     | select(.value.model != "NONE")
-    | .key as $agent | .value.model as $model
+    | .key as $agent | .value.model as $model | .value.role as $role
     | ($reg[0].models[$model].output_limit // 0) as $ol
-    | select($ol < 64000)
-    | [$agent, $model, $ol] | @tsv
+    | ([$general, (($role_minimums[$role] // 0) | tonumber)] | max) as $thr
+    | select($ol < $thr)
+    | [$agent, $model, $ol, $thr] | @tsv
 ' <<<"$generated")
 
 printf '%s\n' "$generated"

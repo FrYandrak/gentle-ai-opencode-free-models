@@ -133,7 +133,8 @@ apply_registry_changes() {
                 # in privacy-tier-registry.json.
                 output_limit: 131072,
                 tool_call: true,
-                best_for: []
+                best_for: [],
+                notes: "limits are add-time defaults pending models.dev verification (see selection_rules.limits_reverify)"
             } end)
         | reduce $rems[] as $m (. ; del(.models["opencode/" + $m]))
         | .last_updated = $ts

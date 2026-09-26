@@ -4,8 +4,13 @@
   "source": "OpenCode Zen API + provider documentation + benchmarks",
   "selection_rules": {
     "output_limit_rule": "For subagents that must EMIT large payloads (review lens JSON, spec/tasks reports), the binding model parameter is output_limit (max output tokens per response), NOT context_window. context_window only bounds how much INPUT fits; output_limit is what a finish: \"length\" death exhausts. When output_limit is too small, the model burns its whole budget reasoning and emits nothing (the provider stops with finish reason \"length\" — reproduced locally). Historical failure: opencode/mimo-v2.6-flash-free at output 32000 exhausted its reasoning budget before emitting any output.",
-    "large_payload_threshold": "models with output_limit < 64000 must NOT be selected for subagents that emit large structured payloads (review lenses, reports)",
-    "review_role_chain": "The review chain lists only tier-eligible models with output_limit >= 128000: opencode/nemotron-3-ultra-free and opencode/nemotron-3.5-lightning-free. mimo, ling-3.0-flash-fin, and big-pickle are tier-eligible but excluded because output_limit 32000 (ling: 32768) reproduces the failure.",
+    "thresholds": {
+      "general_large_payload": 64000,
+      "role_minimums": { "review": 128000 }
+    },
+    "threshold_rationale": "Both thresholds derive from the observed 32000-token finish=length failure on large structured payloads: general_large_payload (64000) is the warning zone for any subagent emitting large payloads, at 2x that failure; role_minimums.review (128000) is 4x the failure baseline, the floor for review-lens JSON payloads once reasoning overhead is counted. Code reads ONLY selection_rules.thresholds; prose in this file must not restate these numbers independently of the object.",
+    "large_payload_threshold": "Models whose output_limit is below thresholds.general_large_payload must NOT be selected for subagents that emit large structured payloads (review lenses, reports); generate-agent-config.sh warns before such an assignment. The numeric value lives only in thresholds.general_large_payload — code reads that key, not this prose.",
+    "review_role_selection": "The review role has no static chain (role_chains.review was removed). Code selects dynamically among free, tier-eligible models (ids opencode/big-pickle or *-free present in .models) whose output_limit >= thresholds.role_minimums.review; the highest output_limit wins, ties break by id ascending. No big-pickle append happens in this branch. If no model qualifies, the agent receives NONE and apply-model-config.sh prints a visible skip warning — never a silent low-limit assignment.",
     "limits_source": "https://models.dev/api.json — limits corrected 2026-09-24",
     "limits_reverify": "Re-verify limits: fetch https://models.dev/api.json and compare context_window/output_limit for every model referenced by role_chains against the registry entries; refresh last_updated with the check date. Run when a new model appears on Zen and at least quarterly, so the corrected limits cannot go silently stale."
   },
@@ -175,7 +180,7 @@
         "routing",
         "scoring"
       ],
-      "notes": "NOT a general-purpose LLM. Returns typed decisions (yes/no, multiple-choice, scores) with probabilities. 193x faster than frontier LLMs for structured decisions. Cannot generate text."
+      "notes": "NOT a general-purpose LLM. Returns typed decisions (yes/no, multiple-choice, scores) with probabilities. 193x faster than frontier LLMs for structured decisions. Cannot generate text. Structured decision model — not text generation (output_limit 0, tool_call false); never suitable for agent roles."
     },
     "opencode/mimo-v2.6-flash-free": {
       "name": "MiMo-V2.6 Flash Free",
@@ -289,10 +294,6 @@
       "opencode/ling-3.0-flash-fin-free",
       "opencode/mimo-v2.6-flash-free",
       "opencode/big-pickle"
-    ],
-    "review": [
-      "opencode/nemotron-3-ultra-free",
-      "opencode/nemotron-3.5-lightning-free"
     ],
     "default": [
       "opencode/mimo-v2.6-flash-free",

@@ -121,3 +121,9 @@ out-of-scope for v1 — recorded under Declined findings with evidence.
 
 - 2026-09-25: created after the review closed `escalated`; fix set F1–F6 and
   the decline rationale triaged against the admitted lens results.
+- 2026-09-25: F1–F6 implemented and verified (T1–T3 green, including the live
+  `--force` run and the parent spot check). All changes are `git add`-staged;
+  the work-unit commit was deferred when the user paused the session. Resume
+  from the staged tree: T4 (commit + RDD assess `--base-ref 97ce0c1
+  --committed-only`) and T5 (push the 6-commit stack to `origin/master`) come
+  first next session.

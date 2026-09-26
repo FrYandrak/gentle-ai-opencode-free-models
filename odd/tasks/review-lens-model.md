@@ -1,5 +1,7 @@
 # Feature: review-lens-model (fix 4R lens `finish=length` exhaustion)
 
+> **Authoritative source for model limits/tiers/selection rules: `privacy-tier-registry.json` (`selection_rules` / `models` / `role_chains`). This document records the state at creation time and is not authoritative.**
+
 ## Objective
 
 Give the Gentle-AI 4R review lens agents (`review-risk`, `review-readability`,
