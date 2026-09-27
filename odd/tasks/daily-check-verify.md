@@ -167,7 +167,16 @@ it silently rather than warn.
       list… Continuing with local registry") was dead code and the session
       hook reported `Daily check FAILED` on every shell during an outage.
       Fix: `$(fetch_zen_models || true)`.
-- [ ] T8 Work-unit commit + RDD assess.
+- [x] T8 Work-unit commit + RDD assess. Committed as `8cb482e` (assess
+      `high_risk` → `review_due:true`); native 4R review
+      `review-6bcac0537eb2eb51` closed **`approved`** and its authority was
+      burned on 2026-09-27 (`gentle-ai.review-acknowledged/v1`). 4/4 lenses
+      admitted; the refuter corroborated one CRITICAL readability finding
+      (R2-2: `classify_privacy` rule order load-bearing) which was fixed by
+      commit `8d75fff` (rank-based precedence, 52 lines ≤ 200 budget),
+      validated by the targeted validator (no regressions), and approved.
+      Advisory, non-blocking: R2-1 (WARNING, `verify_new_models` complexity)
+      and R4-001 (WARNING, informational).
 
 ## Acceptance criteria
 
@@ -196,6 +205,11 @@ this document ~110) — under the 400-line budget; single work-unit commits on
 - 2026-09-27: T1–T6 implemented by writer `general` (`paths-injected`).
 - 2026-09-27: T7 verification green — see evidence below. T9 found and fixed
   during the parent spot check (pre-existing, reproduced on `HEAD`).
+- 2026-09-27: T8 closed — native 4R review `review-6bcac0537eb2eb51`
+  approved + acknowledged after one bounded correction (`8d75fff`).
+  Correction evidence: `bash -n` green; ground-truth classifier cases 7/7
+  (including both multi-rule overlaps); shuffled-rule-block run also 7/7,
+  proving precedence no longer depends on textual order.
 
 ## Verification evidence (2026-09-27)
 
