@@ -157,29 +157,47 @@ privacy_statement() {
     return 0
 }
 
-# Print the FIRST matching tier, in this exact order (order is load-bearing):
-#   1. zero-retention + no training          → 1_strict
-#   2. explicit prompt use for training      → 4_explicit_training
-#   3. anonymous (not linked to identity)    → 2_anonymous_improvement
-#   4. generic "improve the model"           → 3_model_improvement
-# Nemotron matches rules 3 AND 4 → must resolve to 2; Muse Spark 1.3 matches
-# rules 2 AND 4 → must resolve to 4. Empty input or no match prints nothing:
-# fail-closed, the caller keeps the current (worst-case) tier.
+# Precedence is carried by an explicit numeric rank per rule — the LOWEST
+# rank wins — so textual order inside this function is irrelevant: a maintainer
+# may reorder, insert, or delete these blocks without changing any result.
+#   rank 1. zero-retention + no training       → 1_strict
+#   rank 2. explicit prompt use for training   → 4_explicit_training
+#   rank 3. anonymous (not linked to identity) → 2_anonymous_improvement
+#   rank 4. generic "improve the model"        → 3_model_improvement
+# Load-bearing overlaps: Nemotron matches ranks 3 AND 4 → rank 3 wins (tier 2);
+# Muse Spark 1.3 matches ranks 2 AND 4 → rank 2 wins (tier 4). Empty input or
+# no match prints nothing: fail-closed, the caller keeps the current tier.
 classify_privacy() {
-    local text=$1 lc
+    local text=$1 lc rank=99 tier=""
     if [ -z "$text" ]; then
         return 0
     fi
     lc=$(printf '%s' "$text" | tr '[:upper:]' '[:lower:]')
+
     if printf '%s' "$lc" | grep -q 'zero-retention' \
-        && printf '%s' "$lc" | grep -q 'does not use your data for model training'; then
-        echo "1_strict"
-    elif printf '%s' "$lc" | grep -qE 'permission to use your prompts|train future'; then
-        echo "4_explicit_training"
-    elif printf '%s' "$lc" | grep -qE 'not linked to your identity|not linked to identity'; then
-        echo "2_anonymous_improvement"
-    elif printf '%s' "$lc" | grep -q 'improve the model'; then
-        echo "3_model_improvement"
+        && printf '%s' "$lc" | grep -q 'does not use your data for model training' \
+        && [ 1 -lt "$rank" ]; then
+        rank=1
+        tier="1_strict"
+    fi
+    if printf '%s' "$lc" | grep -qE 'permission to use your prompts|train future' \
+        && [ 2 -lt "$rank" ]; then
+        rank=2
+        tier="4_explicit_training"
+    fi
+    if printf '%s' "$lc" | grep -qE 'not linked to your identity|not linked to identity' \
+        && [ 3 -lt "$rank" ]; then
+        rank=3
+        tier="2_anonymous_improvement"
+    fi
+    if printf '%s' "$lc" | grep -q 'improve the model' \
+        && [ 4 -lt "$rank" ]; then
+        rank=4
+        tier="3_model_improvement"
+    fi
+
+    if [ -n "$tier" ]; then
+        echo "$tier"
     fi
     return 0
 }
