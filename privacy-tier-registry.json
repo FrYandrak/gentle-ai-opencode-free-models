@@ -1,12 +1,14 @@
 {
   "version": "2.0.0",
-  "last_updated": "2026-09-25T19:13:52+02:00",
+  "last_updated": "2026-09-27T12:16:44+02:00",
   "source": "OpenCode Zen API + provider documentation + benchmarks",
   "selection_rules": {
     "output_limit_rule": "For subagents that must EMIT large payloads (review lens JSON, spec/tasks reports), the binding model parameter is output_limit (max output tokens per response), NOT context_window. context_window only bounds how much INPUT fits; output_limit is what a finish: \"length\" death exhausts. When output_limit is too small, the model burns its whole budget reasoning and emits nothing (the provider stops with finish reason \"length\" — reproduced locally). Historical failure: opencode/mimo-v2.6-flash-free at output 32000 exhausted its reasoning budget before emitting any output.",
     "thresholds": {
       "general_large_payload": 64000,
-      "role_minimums": { "review": 128000 }
+      "role_minimums": {
+        "review": 128000
+      }
     },
     "threshold_rationale": "Both thresholds derive from the observed 32000-token finish=length failure on large structured payloads: general_large_payload (64000) is the warning zone for any subagent emitting large payloads, at 2x that failure; role_minimums.review (128000) is 4x the failure baseline, the floor for review-lens JSON payloads once reasoning overhead is counted. Code reads ONLY selection_rules.thresholds; prose in this file must not restate these numbers independently of the object.",
     "large_payload_threshold": "Models whose output_limit is below thresholds.general_large_payload must NOT be selected for subagents that emit large structured payloads (review lenses, reports); generate-agent-config.sh warns before such an assignment. The numeric value lives only in thresholds.general_large_payload — code reads that key, not this prose.",
@@ -234,6 +236,18 @@
       "tool_call": true,
       "best_for": [],
       "notes": "Limits corrected against models.dev 2026-09-24 (context 262144→1048576, output 131072→524288; models.dev input limit 524288)."
+    },
+    "opencode/longcat-2.5-preview-free": {
+      "name": "longcat-2.5-preview-free",
+      "provider": "Unknown",
+      "privacy_tier": "4_explicit_training",
+      "evidence": "UNVERIFIED — auto-added 2026-09-27T12:05:58+02:00. Default tier 4 per free-only policy: unknown privacy = maximum exposure. Upgrade only after verified privacy evidence.",
+      "privacy_url": null,
+      "context_window": 1000000,
+      "output_limit": 131072,
+      "tool_call": true,
+      "best_for": [],
+      "notes": "Limits verified against models.dev 2026-09-27 (context 262144→1000000; output 131072 confirmed). reasoning + image input; open_weights false."
     }
   },
   "role_chains": {
