@@ -116,6 +116,8 @@ When a new model appears on Zen it is added with a **default tier**. Verify its 
 
 **Sync risk:** `review-*` agent blocks are marked `__managed_by: gentle-ai/sdd`, so `gentle-ai sync` may revert assigned models. Re-apply with `./apply-model-config.sh`.
 
+**Automated verification:** every `daily-check.sh` run verifies `context_window`/`output_limit` against `https://models.dev/api.json` and each `privacy_tier` against the official OpenCode Zen docs §Privacy section. Verified data is applied automatically to **newly added** models at add time; on **existing** entries, drift is reported as a yellow advisory only — the daily run never auto-corrects committed limits or rewrites tiers (a tier change stays a manual privacy decision).
+
 ### Known non-goals
 
 - **Not a benchmark suite.** This project does not score model quality; it assigns models. (Comparative testing was deliberately dropped to keep the free-token budget for real work.)

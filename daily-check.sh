@@ -89,6 +89,116 @@ fetch_zen_models() {
 }
 
 # ============================================================
+# Upstream verification sources (fail-soft under set -e)
+# The script runs inside session-start-hook.sh with output redirected to a
+# log; a failed fetch must DEGRADE (empty payload + yellow notice on stderr,
+# always return 0), never abort the run or make the hook see a non-zero exit.
+# ============================================================
+
+fetch_limits_doc() {
+    local payload
+    payload=$(curl -s --max-time 15 "https://models.dev/api.json" 2>/dev/null || true)
+    # Validate structure, not just JSON syntax: a captive-portal or API error
+    # page can be valid JSON without the .opencode.models map we depend on.
+    if [ -z "$payload" ] || ! printf '%s' "$payload" | jq -e '.opencode.models | type == "object"' > /dev/null 2>&1; then
+        echo -e "${YELLOW}⚠ Could not fetch a usable https://models.dev/api.json — limit verification skipped this run.${NC}" >&2
+        return 0
+    fi
+    printf '%s\n' "$payload"
+    return 0
+}
+
+fetch_privacy_doc() {
+    local payload
+    payload=$(curl -s --max-time 15 "https://raw.githubusercontent.com/anomalyco/opencode/dev/packages/web/src/content/docs/zen.mdx" 2>/dev/null || true)
+    # raw.githubusercontent.com answers 404 with a non-empty body and curl -s
+    # still exits 0, so non-empty is not enough — require the §Privacy heading.
+    if [ -z "$payload" ] || ! printf '%s' "$payload" | grep -q '^## Privacy'; then
+        echo -e "${YELLOW}⚠ Could not fetch the official OpenCode Zen docs — privacy verification skipped this run.${NC}" >&2
+        return 0
+    fi
+    printf '%s\n' "$payload"
+    return 0
+}
+
+# ============================================================
+# Privacy classifier — the official Zen docs are the single source
+# ============================================================
+
+# Display name for a bare id (e.g. space-bunny-free) from the
+# "| Model | Model ID |" pricing table. Empty result ⇒ no signal (fail-closed).
+zen_display_name() {
+    local id=$1 name=""
+    if [ -z "$id" ] || [ -z "$PRIVACY_DOC" ]; then
+        return 0
+    fi
+    name=$(printf '%s\n' "$PRIVACY_DOC" | awk -F'|' -v id="$id" '
+        substr($0, 1, 1) == "|" {
+            model = $2
+            mid = $3
+            gsub(/^[ \t]+|[ \t]+$/, "", model)
+            gsub(/^[ \t]+|[ \t]+$/, "", mid)
+            if (mid == id) { print model; exit }
+        }
+    ' 2>/dev/null) || name=""
+    printf '%s' "$name"
+    return 0
+}
+
+# Every line that LITERALLY starts with "- <display name>".
+# Literal prefix match (awk index), never a regex: display names contain
+# regex metacharacters such as "." and "+" (MiMo-V2.6-Flash Free, Jev 1.13).
+privacy_statement() {
+    local name=$1
+    if [ -z "$name" ] || [ -z "$PRIVACY_DOC" ]; then
+        return 0
+    fi
+    printf '%s\n' "$PRIVACY_DOC" | awk -v p="- $name" 'index($0, p) == 1'
+    return 0
+}
+
+# Print the FIRST matching tier, in this exact order (order is load-bearing):
+#   1. zero-retention + no training          → 1_strict
+#   2. explicit prompt use for training      → 4_explicit_training
+#   3. anonymous (not linked to identity)    → 2_anonymous_improvement
+#   4. generic "improve the model"           → 3_model_improvement
+# Nemotron matches rules 3 AND 4 → must resolve to 2; Muse Spark 1.3 matches
+# rules 2 AND 4 → must resolve to 4. Empty input or no match prints nothing:
+# fail-closed, the caller keeps the current (worst-case) tier.
+classify_privacy() {
+    local text=$1 lc
+    if [ -z "$text" ]; then
+        return 0
+    fi
+    lc=$(printf '%s' "$text" | tr '[:upper:]' '[:lower:]')
+    if printf '%s' "$lc" | grep -q 'zero-retention' \
+        && printf '%s' "$lc" | grep -q 'does not use your data for model training'; then
+        echo "1_strict"
+    elif printf '%s' "$lc" | grep -qE 'permission to use your prompts|train future'; then
+        echo "4_explicit_training"
+    elif printf '%s' "$lc" | grep -qE 'not linked to your identity|not linked to identity'; then
+        echo "2_anonymous_improvement"
+    elif printf '%s' "$lc" | grep -q 'improve the model'; then
+        echo "3_model_improvement"
+    fi
+    return 0
+}
+
+# Verbatim doc line that triggered the winning rule — used as registry evidence.
+matched_line_for_tier() {
+    local tier=$1 stmt=$2 pattern=""
+    case "$tier" in
+        1_strict)                pattern='zero-retention' ;;
+        4_explicit_training)     pattern='permission to use your prompts|train future' ;;
+        2_anonymous_improvement) pattern='not linked to your identity|not linked to identity' ;;
+        3_model_improvement)     pattern='improve the model' ;;
+        *) return 0 ;;
+    esac
+    printf '%s\n' "$stmt" | grep -iE -m1 "$pattern" 2>/dev/null || true
+    return 0
+}
+
+# ============================================================
 # Snapshot comparison
 # ============================================================
 
@@ -164,6 +274,221 @@ append_changelog() {
 }
 
 # ============================================================
+# Add-time verification — SECOND pass, immediately after
+# apply_registry_changes. The add path keeps writing fail-closed defaults;
+# this pass upgrades only what the upstream sources can affirm:
+#   - limits known to models.dev   → real context_window/output_limit + note
+#   - affirmative Zen-doc statement → classified tier + verbatim evidence + URL
+# Anything upstream cannot confirm is left exactly as the add path wrote it
+# (tier 4, UNVERIFIED evidence, add-time limit defaults) — fail-closed.
+# One jq invocation updates every added id; atomic mktemp-in-dir + mv, then
+# reg_json is reloaded so the assignments table sees the updated state.
+# ============================================================
+
+verify_new_models() {
+    local added=$1
+    if [ -z "$added" ]; then
+        return 0
+    fi
+
+    local ids_json today limits_json priv_ndjson priv_arr entry tmp_registry id name stmt tier line
+    ids_json=$(printf '%s' "$added" | jq -Rn '[inputs | select(length > 0)]')
+    if [ "$(jq 'length' <<<"$ids_json")" = "0" ]; then
+        return 0
+    fi
+    today=$(date +%Y-%m-%d)
+
+    # models.dev payload → {id: {context, output}} for the added ids only.
+    # Only complete entries (context AND output present) are ever applied.
+    limits_json="{}"
+    if [ -n "$LIMITS_DOC" ]; then
+        limits_json=$(printf '%s' "$LIMITS_DOC" | jq -c --argjson ids "$ids_json" '
+            [ .opencode.models | to_entries[]
+              | select(.key as $k | $ids | index($k))
+              | select(.value.limit.context != null and .value.limit.output != null)
+              | {key: .key, value: {context: .value.limit.context, output: .value.limit.output}}
+            ] | from_entries
+        ' 2>/dev/null) || limits_json="{}"
+        if ! printf '%s' "$limits_json" | jq empty > /dev/null 2>&1; then
+            limits_json="{}"
+        fi
+    fi
+
+    # Zen docs → [{id, tier, line}] for added ids with an affirmative statement.
+    priv_ndjson=""
+    if [ -n "$PRIVACY_DOC" ]; then
+        while IFS= read -r id; do
+            if [ -z "$id" ]; then
+                continue
+            fi
+            name=$(zen_display_name "$id")
+            stmt=$(privacy_statement "$name")
+            tier=$(classify_privacy "$stmt")
+            # No display name / no statement / no classified tier ⇒ skip:
+            # the fail-closed tier 4 + UNVERIFIED evidence stays untouched.
+            if [ -z "$tier" ]; then
+                continue
+            fi
+            line=$(matched_line_for_tier "$tier" "$stmt")
+            if [ -z "$line" ]; then
+                continue
+            fi
+            if entry=$(jq -c -n --arg id "$id" --arg tier "$tier" --arg line "$line" \
+                '{id: $id, tier: $tier, line: $line}' 2>/dev/null); then
+                priv_ndjson="${priv_ndjson}${entry}"$'\n'
+            fi
+        done <<< "$added"
+    fi
+    priv_arr=$(printf '%s' "$priv_ndjson" | jq -sc '.' 2>/dev/null) || priv_arr="[]"
+    if ! printf '%s' "$priv_arr" | jq empty > /dev/null 2>&1; then
+        priv_arr="[]"
+    fi
+
+    tmp_registry=$(mktemp "${REGISTRY_FILE}.tmp.XXXXXX")
+    if jq -n \
+        --argjson reg "$reg_json" \
+        --argjson ids "$ids_json" \
+        --argjson limits "$limits_json" \
+        --argjson priv "$priv_arr" \
+        --arg today "$today" '
+        reduce $ids[] as $id ($reg;
+            ("opencode/" + $id) as $key
+            | if (.models | has($key) | not) then .
+              else
+                . as $root
+                | ($root.models[$key]) as $m
+                | ($limits[$id] // null) as $lim
+                | ([$priv[] | select(.id == $id)] | .[0]) as $p
+                | ($m
+                    | (if $lim == null then .
+                       else
+                         .context_window as $oc
+                         | .output_limit as $oo
+                         | $lim.context as $nc
+                         | $lim.output as $no
+                         | ( if $oc != $nc and $oo != $no then "context \($oc)→\($nc), output \($oo)→\($no)"
+                             elif $oc != $nc then "context \($oc)→\($nc)"
+                             elif $oo != $no then "output \($oo)→\($no)"
+                             else "limits confirmed unchanged"
+                             end) as $delta
+                         | .context_window = $nc
+                         | .output_limit = $no
+                         | .notes = ("Limits verified against models.dev " + $today + " (" + $delta + ")")
+                       end)
+                    | (if $p == null then .
+                       else
+                         .privacy_tier = $p.tier
+                         | .evidence = ("VERIFIED " + $today + " against the official OpenCode Zen docs: \u0022" + $p.line + "\u0022")
+                         | .privacy_url = "https://opencode.ai/docs/zen/#privacy"
+                       end)
+                ) as $newm
+                | $root | .models[$key] = $newm
+              end)
+    ' > "$tmp_registry" 2>/dev/null; then
+        mv "$tmp_registry" "$REGISTRY_FILE"
+    else
+        rm -f "$tmp_registry"
+        echo -e "${YELLOW}⚠ Add-time verification could not be applied — keeping add-path defaults.${NC}" >&2
+    fi
+
+    reg_json=$(jq -c . "$REGISTRY_FILE")
+    log "Add-time verification pass for: $(printf '%s' "$added" | tr '\n' ' ')"
+    return 0
+}
+
+# ============================================================
+# Upstream drift report — ADVISORY ONLY, NEVER mutates the registry.
+# Existing entries are report-only: a wrong limit is a manual fix, and a
+# tier downgrade would silently unlock a model — that is a human privacy
+# decision, so mismatches are printed instead of applied. Models with no
+# affirmative statement in the official docs are collected into ONE compact
+# fail-closed line instead of one warning each.
+# ============================================================
+
+report_upstream_drift() {
+    local reported=false
+    local id key name stmt tier reg_tier line drift id_list
+    local -a no_signal=()
+
+    echo ""
+    echo -e "${BOLD}Upstream verification (models.dev + opencode.ai/docs/zen)${NC}"
+
+    # ── Limits half: registry vs models.dev ──
+    if [ -z "$LIMITS_DOC" ]; then
+        echo -e "  ${YELLOW}⚠ Limit verification skipped: https://models.dev/api.json was unreachable this run.${NC}"
+    else
+        drift=$(printf '%s' "$LIMITS_DOC" | jq -r --argjson reg "$reg_json" '
+            . as $up
+            | $reg.models | to_entries[]
+            | (.key | sub("^opencode/"; "")) as $id
+            | ($up.opencode.models[$id] // null) as $m
+            | select($m != null and $m.limit.context != null and $m.limit.output != null)
+            | (.value.context_window // -1) as $rc
+            | (.value.output_limit // -1) as $ro
+            | select($rc != $m.limit.context or $ro != $m.limit.output)
+            | [$id, ($rc | tostring), ($m.limit.context | tostring), ($ro | tostring), ($m.limit.output | tostring)]
+            | @tsv
+        ' 2>/dev/null) || drift=""
+        while IFS=$'\t' read -r id rc uc ro uo; do
+            if [ -z "$id" ]; then
+                continue
+            fi
+            reported=true
+            echo -e "  ${YELLOW}⚠ $id: registry limits differ from models.dev${NC}"
+            if [ "$rc" != "$uc" ]; then
+                echo -e "      context_window: registry $rc vs models.dev $uc"
+            fi
+            if [ "$ro" != "$uo" ]; then
+                echo -e "      output_limit:  registry $ro vs models.dev $uo"
+            fi
+            echo -e "      ${YELLOW}Correct privacy-tier-registry.json manually — the daily run never auto-fixes existing entries.${NC}"
+        done <<< "$drift"
+    fi
+
+    # ── Privacy half: registry tier vs classifier ──
+    if [ -z "$PRIVACY_DOC" ]; then
+        echo -e "  ${YELLOW}⚠ Privacy verification skipped: the official OpenCode Zen docs were unreachable this run.${NC}"
+    else
+        while IFS=$'\t' read -r key reg_tier; do
+            if [ -z "$key" ]; then
+                continue
+            fi
+            id=${key#opencode/}
+            name=$(zen_display_name "$id")
+            stmt=$(privacy_statement "$name")
+            tier=$(classify_privacy "$stmt")
+            if [ -z "$tier" ]; then
+                no_signal+=("$id")
+            elif [ "$tier" != "$reg_tier" ]; then
+                reported=true
+                line=$(matched_line_for_tier "$tier" "$stmt")
+                echo -e "  ${YELLOW}⚠ $id: registry tier $reg_tier vs Zen docs classify as $tier${NC}"
+                echo -e "      ${DIM}$line${NC}"
+                echo -e "      ${YELLOW}Review and update privacy-tier-registry.json manually — the daily run never rewrites existing tiers.${NC}"
+            fi
+        done < <(jq -r '.models | to_entries[] | "\(.key)\t\(.value.privacy_tier // "")"' <<<"$reg_json")
+
+        if [ "${#no_signal[@]}" -gt 0 ]; then
+            reported=true
+            id_list=$(printf '%s\n' "${no_signal[@]}" | sort | paste -sd, - | sed 's/,/, /g')
+            echo -e "  ${YELLOW}⚠ No affirmative privacy statement in the official Zen docs — stays fail-closed at its current tier pending manual verification: ${id_list}${NC}"
+        fi
+    fi
+
+    # Single green line only when BOTH sources were fetched and nothing to report.
+    if [ "$reported" = false ] && [ -n "$LIMITS_DOC" ] && [ -n "$PRIVACY_DOC" ]; then
+        echo -e "  ${GREEN}✓ Registry limits match models.dev; privacy tiers match the official Zen docs.${NC}"
+    fi
+
+    if [ "$reported" = true ]; then
+        log "Upstream verification: drift reported (advisory only, registry untouched)"
+    else
+        log "Upstream verification: no drift"
+    fi
+    return 0
+}
+
+# ============================================================
 # Main daily check
 # ============================================================
 
@@ -209,7 +534,11 @@ echo ""
 log "Daily check started — tier $PRIVACY_TIER"
 
 # Fetch live models
-live_models=$(fetch_zen_models)
+# `|| true` is required: under `set -e` an assignment whose command
+# substitution fails aborts the whole script, which made the fallback below
+# unreachable dead code and made a transient Zen outage fail the entire run
+# (the session hook then reported "Daily check FAILED" on every shell).
+live_models=$(fetch_zen_models || true)
 if [ -z "$live_models" ]; then
     echo -e "${YELLOW}⚠ Could not fetch live model list from OpenCode Zen.${NC}"
     echo -e "${DIM}  Continuing with local registry.${NC}"
@@ -218,6 +547,13 @@ if [ -z "$live_models" ]; then
 else
     live_count=$(echo "$live_models" | grep -c . || true)
 fi
+
+# ── Upstream verification sources ───────────────────────────────────────────
+# Fetched once per run for both the add-time verification (T3) and the drift
+# report (T4). Fail-soft: an empty payload skips that half of the verification
+# with a yellow notice — the run itself always continues (and exits 0).
+LIMITS_DOC=$(fetch_limits_doc)
+PRIVACY_DOC=$(fetch_privacy_doc)
 
 if [ "$INTERACTIVE" = true ]; then
     # ── Interactive: diff live list vs the registry (source of truth),
@@ -272,6 +608,8 @@ if [ "$INTERACTIVE" = true ]; then
                 done <<< "$removed"
 
                 apply_registry_changes "$added" "$removed"
+                # Second pass: real limits + doc-verified tier for the new ids.
+                verify_new_models "$added"
                 append_changelog "$added" "$removed"
                 save_snapshot "$live_models"
                 echo ""
@@ -339,6 +677,8 @@ else
 
             # Batch: add new, remove gone, stamp timestamp — single jq + one write.
             apply_registry_changes "$added" "$removed"
+            # Second pass: real limits + doc-verified tier for the new ids.
+            verify_new_models "$added"
 
             while IFS= read -r model; do
                 [ -n "$model" ] && echo -e "    ${RED}- Removed from registry: $model${NC}"
@@ -355,6 +695,13 @@ else
         fi
     fi
 fi
+
+# ============================================================
+# Upstream verification (advisory only — after the registry update,
+# before the assignments table; never writes to the registry)
+# ============================================================
+
+report_upstream_drift
 
 # ============================================================
 # Today's model assignments
