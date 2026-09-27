@@ -123,7 +123,10 @@ model with the **highest output_limit** among those with sufficient capacity
       `select_role_model review 1` → NONE (no eligible model);
       `select_role_model review 3` → top-output eligible; non-review roles
       unchanged vs pre-change output. Record exact outputs here.
-- [ ] T7 Work-unit commit(s) + RDD assess (orchestrator; user confirms).
+- [x] T7 Work-unit commit(s) + RDD assess (orchestrator; user confirms) —
+      `a49fef2` (feat, 9 files/409 lines) + `151f1f6` (docs: T9 triage,
+      assess `passive`). Preceded by `a87d6cc` (F1–F6 remediation) with its
+      own assess + review round.
 - [x] T8 Native review `review-a3918022efdf8ec7` closed `escalated`
       (informational; unknown causality on R2-001 + R3-1). Maintainer triage:
       both real → fixed pre-commit: R2-001 single-sourced model selection
@@ -192,3 +195,15 @@ by writer `general` + parent spot check (byte-equivalence verified). T9
 review triage: all six severe findings declined with evidence (see T9).
 T7: commits `a87d6cc` + `a49fef2` done with RDD assess + review cycles;
 push after the double privacy scan the user requested.
+
+## Progress (2026-09-27)
+
+- Double privacy scan over the 7 unpushed commits: PASS 1 (pattern scan of
+  the full 1596-line diff) + PASS 2 (full content of all 11 changed files
+  and every commit message) — both clean, 0 hits.
+- T7 checkbox backfilled (commits + assess were done on 2026-09-26).
+- `opencode/longcat-2.5-preview-free` auto-added by `daily-check.sh`
+  (2026-09-27); limits re-verified against models.dev and corrected
+  (`context_window` 262144 → 1000000) in `bc57e3d`.
+- Open: T5 (push), and the space-bunny / longcat privacy-tier consultation
+  (official Zen docs now state zero-retention for both).

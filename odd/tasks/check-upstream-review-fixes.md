@@ -104,7 +104,9 @@ out-of-scope for v1 — recorded under Declined findings with evidence.
       0 (real tag `v3.7.0` passed F1) and 3 expected drift advisories.
       Parent spot check re-ran `bash -n`, `jq empty`, and the
       `compare_versions` smoke — all green.
-- [ ] T4 Work-unit commit + RDD assess (`--base-ref 97ce0c1 --committed-only`).
+- [x] T4 Work-unit commit + RDD assess (`--base-ref 97ce0c1 --committed-only`)
+      — committed as `a87d6cc`; native review `review-a3918022efdf8ec7` closed
+      `escalated` (informational), T1–T3 evidence re-confirmed after triage.
 - [ ] T5 Push the stack to `origin/master`.
 
 ## Acceptance criteria
@@ -123,7 +125,9 @@ out-of-scope for v1 — recorded under Declined findings with evidence.
   the decline rationale triaged against the admitted lens results.
 - 2026-09-25: F1–F6 implemented and verified (T1–T3 green, including the live
   `--force` run and the parent spot check). All changes are `git add`-staged;
-  the work-unit commit was deferred when the user paused the session. Resume
-  from the staged tree: T4 (commit + RDD assess `--base-ref 97ce0c1
-  --committed-only`) and T5 (push the 6-commit stack to `origin/master`) come
-  first next session.
+  the work-unit commit was deferred when the user paused the session.
+- 2026-09-26: T4 done — commit `a87d6cc` + RDD assess + native review
+  `review-a3918022efdf8ec7` (escalated → triage → no source change needed
+  beyond F1–F6 already implemented).
+- 2026-09-27: T4 checkbox backfilled (it was done but never ticked). T5
+  (push) remains the only open task.
