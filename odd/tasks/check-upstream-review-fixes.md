@@ -107,7 +107,9 @@ out-of-scope for v1 — recorded under Declined findings with evidence.
 - [x] T4 Work-unit commit + RDD assess (`--base-ref 97ce0c1 --committed-only`)
       — committed as `a87d6cc`; native review `review-a3918022efdf8ec7` closed
       `escalated` (informational), T1–T3 evidence re-confirmed after triage.
-- [ ] T5 Push the stack to `origin/master`.
+- [x] T5 Push the stack to `origin/master` — executed 2026-09-27:
+      `d2d3036..d84d914` (13 commits, 12 files), preceded by the double
+      privacy scan (pattern + full-content): 0 hits.
 
 ## Acceptance criteria
 
@@ -131,3 +133,5 @@ out-of-scope for v1 — recorded under Declined findings with evidence.
   beyond F1–F6 already implemented).
 - 2026-09-27: T4 checkbox backfilled (it was done but never ticked). T5
   (push) remains the only open task.
+- 2026-09-27: T5 done — pushed `d2d3036..d84d914` to `origin/master` after a
+  clean double privacy scan; this feature is fully closed.
