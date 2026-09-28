@@ -9,6 +9,18 @@
 
 set -e
 
+# Fail-soft policy (R4-001): this script runs inside session-start-hook.sh,
+# where a non-zero exit makes the hook retry on every shell and report
+# "Daily check FAILED". Every NON-CRITICAL command substitution (network
+# fetches, advisory/report parsing, display helpers, jq parses of untrusted
+# payloads, date/grep/sort chains) is therefore guarded with `|| true` or an
+# explicit `|| var=<fallback>` so a transient tool/network failure degrades
+# to a fallback value (plus a yellow notice where one exists) and the run
+# still exits 0. Fail-loudly is kept only for genuinely critical paths:
+# resolving SCRIPT_DIR, reading privacy-tier-registry.json (at startup and
+# after writes), and the mktemp/write steps that update
+# privacy-tier-registry.json (a broken registry dir must surface loudly).
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/.privacy-config"
 REGISTRY_FILE="$SCRIPT_DIR/privacy-tier-registry.json"
@@ -153,7 +165,7 @@ privacy_statement() {
     if [ -z "$name" ] || [ -z "$PRIVACY_DOC" ]; then
         return 0
     fi
-    printf '%s\n' "$PRIVACY_DOC" | awk -v p="- $name" 'index($0, p) == 1'
+    printf '%s\n' "$PRIVACY_DOC" | awk -v p="- $name" 'index($0, p) == 1' || true
     return 0
 }
 
@@ -172,7 +184,7 @@ classify_privacy() {
     if [ -z "$text" ]; then
         return 0
     fi
-    lc=$(printf '%s' "$text" | tr '[:upper:]' '[:lower:]')
+    lc=$(printf '%s' "$text" | tr '[:upper:]' '[:lower:]' || true)
 
     if printf '%s' "$lc" | grep -q 'zero-retention' \
         && printf '%s' "$lc" | grep -q 'does not use your data for model training' \
@@ -239,8 +251,8 @@ save_snapshot() {
 apply_registry_changes() {
     local added=$1 removed=$2
     local added_arr removed_arr tmp_registry
-    added_arr=$(printf '%s' "$added" | jq -Rn '[inputs | select(length > 0)]')
-    removed_arr=$(printf '%s' "$removed" | jq -Rn '[inputs | select(length > 0)]')
+    added_arr=$(printf '%s' "$added" | jq -Rn '[inputs | select(length > 0)]') || added_arr="[]"
+    removed_arr=$(printf '%s' "$removed" | jq -Rn '[inputs | select(length > 0)]') || removed_arr="[]"
     tmp_registry=$(mktemp "${REGISTRY_FILE}.tmp.XXXXXX")
     jq -n \
         --argjson reg "$reg_json" \
@@ -299,8 +311,15 @@ append_changelog() {
 #   - affirmative Zen-doc statement → classified tier + verbatim evidence + URL
 # Anything upstream cannot confirm is left exactly as the add path wrote it
 # (tier 4, UNVERIFIED evidence, add-time limit defaults) — fail-closed.
-# One jq invocation updates every added id; atomic mktemp-in-dir + mv, then
-# reg_json is reloaded so the assignments table sees the updated state.
+# R2-1 split: verify_new_models is a short orchestrator over three
+# single-responsibility helpers:
+#   verify_limits_for_ids    — models.dev → {id:{context,output}} (fail-soft {})
+#   verify_privacy_for_added — Zen docs → [{id,tier,line}] (fail-soft [])
+#   write_verified_fields    — one jq reduce + atomic mktemp-in-dir mv,
+#                              registry write, then reg_json reload
+# The jq reduce updates every added id in a single invocation; the write is
+# atomic (mktemp-in-dir + mv), then reg_json is reloaded so the assignments
+# table sees the updated state.
 # ============================================================
 
 verify_new_models() {
@@ -309,13 +328,22 @@ verify_new_models() {
         return 0
     fi
 
-    local ids_json today limits_json priv_ndjson priv_arr entry tmp_registry id name stmt tier line
-    ids_json=$(printf '%s' "$added" | jq -Rn '[inputs | select(length > 0)]')
+    local ids_json today limits_json priv_arr
+    ids_json=$(printf '%s' "$added" | jq -Rn '[inputs | select(length > 0)]') || ids_json="[]"
     if [ "$(jq 'length' <<<"$ids_json")" = "0" ]; then
         return 0
     fi
-    today=$(date +%Y-%m-%d)
+    today=$(date +%Y-%m-%d || true)
 
+    limits_json=$(verify_limits_for_ids "$ids_json")
+    priv_arr=$(verify_privacy_for_added "$added")
+    write_verified_fields "$ids_json" "$limits_json" "$priv_arr" "$today"
+    log "Add-time verification pass for: $(printf '%s' "$added" | tr '\n' ' ')"
+    return 0
+}
+
+verify_limits_for_ids() {
+    local ids_json=$1 limits_json
     # models.dev payload → {id: {context, output}} for the added ids only.
     # Only complete entries (context AND output present) are ever applied.
     limits_json="{}"
@@ -331,7 +359,13 @@ verify_new_models() {
             limits_json="{}"
         fi
     fi
+    printf '%s\n' "$limits_json"
+    return 0
+}
 
+verify_privacy_for_added() {
+    local added=$1
+    local priv_ndjson priv_arr entry id name stmt tier line
     # Zen docs → [{id, tier, line}] for added ids with an affirmative statement.
     priv_ndjson=""
     if [ -n "$PRIVACY_DOC" ]; then
@@ -361,7 +395,13 @@ verify_new_models() {
     if ! printf '%s' "$priv_arr" | jq empty > /dev/null 2>&1; then
         priv_arr="[]"
     fi
+    printf '%s\n' "$priv_arr"
+    return 0
+}
 
+write_verified_fields() {
+    local ids_json=$1 limits_json=$2 priv_arr=$3 today=$4
+    local tmp_registry
     tmp_registry=$(mktemp "${REGISTRY_FILE}.tmp.XXXXXX")
     if jq -n \
         --argjson reg "$reg_json" \
@@ -410,7 +450,6 @@ verify_new_models() {
     fi
 
     reg_json=$(jq -c . "$REGISTRY_FILE")
-    log "Add-time verification pass for: $(printf '%s' "$added" | tr '\n' ' ')"
     return 0
 }
 
@@ -488,7 +527,7 @@ report_upstream_drift() {
 
         if [ "${#no_signal[@]}" -gt 0 ]; then
             reported=true
-            id_list=$(printf '%s\n' "${no_signal[@]}" | sort | paste -sd, - | sed 's/,/, /g')
+            id_list=$(printf '%s\n' "${no_signal[@]}" | sort | paste -sd, - | sed 's/,/, /g' || true)
             echo -e "  ${YELLOW}⚠ No affirmative privacy statement in the official Zen docs — stays fail-closed at its current tier pending manual verification: ${id_list}${NC}"
         fi
     fi
@@ -578,7 +617,7 @@ if [ "$INTERACTIVE" = true ]; then
     # confirm before writing, then re-evaluate the assignments below.
     # Fetch warnings were already printed by the fetch step; stdout of
     # fetch_zen_models carries model ids only (no warning pollution).
-    registry_models=$(jq -r '.models | keys[]' <<<"$reg_json" | sed 's|^opencode/||' | sort)
+    registry_models=$(jq -r '.models | keys[]' <<<"$reg_json" | sed 's|^opencode/||' | sort) || registry_models=""
     registry_count=$(echo "$registry_models" | grep -c . || true)
 
     echo -e "  Live models:     ${CYAN}$live_count${NC}"
@@ -586,8 +625,8 @@ if [ "$INTERACTIVE" = true ]; then
     echo ""
 
     if [ "$live_count" -gt 0 ]; then
-        added=$(comm -13 <(echo "$registry_models") <(echo "$live_models"))
-        removed=$(comm -23 <(echo "$registry_models") <(echo "$live_models"))
+        added=$(comm -13 <(echo "$registry_models") <(echo "$live_models")) || added=""
+        removed=$(comm -23 <(echo "$registry_models") <(echo "$live_models")) || removed=""
 
         if [ -z "$added" ] && [ -z "$removed" ]; then
             echo -e "${GREEN}${BOLD}✓ Registry is current. No changes detected.${NC}"
@@ -649,7 +688,7 @@ else
     # ── Non-interactive (session hook path): snapshot diff, auto-update.
 
     # Load previous snapshot
-    prev_snapshot=$(load_snapshot)
+    prev_snapshot=$(load_snapshot) || prev_snapshot=""
     prev_count=0
     if [ -n "$prev_snapshot" ]; then
         prev_count=$(echo "$prev_snapshot" | grep -c . || true)
@@ -661,8 +700,8 @@ else
 
     # Detect changes
     if [ "$live_count" -gt 0 ]; then
-        added=$(comm -13 <(echo "$prev_snapshot" 2>/dev/null || echo "") <(echo "$live_models"))
-        removed=$(comm -23 <(echo "$prev_snapshot" 2>/dev/null || echo "") <(echo "$live_models"))
+        added=$(comm -13 <(echo "$prev_snapshot" 2>/dev/null || echo "") <(echo "$live_models")) || added=""
+        removed=$(comm -23 <(echo "$prev_snapshot" 2>/dev/null || echo "") <(echo "$live_models")) || removed=""
 
         if [ -n "$added" ] || [ -n "$removed" ]; then
             echo -e "${BOLD}Changes detected:${NC}"
@@ -687,7 +726,7 @@ else
             echo -e "${YELLOW}Registry will be updated with available models.${NC}"
 
             # Report only models that are actually new to the registry.
-            added_arr=$(printf '%s' "$added" | jq -Rn '[inputs | select(length > 0)]')
+            added_arr=$(printf '%s' "$added" | jq -Rn '[inputs | select(length > 0)]') || added_arr="[]"
             while IFS= read -r model; do
                 [ -n "$model" ] && echo -e "    ${GREEN}+ Added to registry: $model${NC} (default tier 4 — verify privacy to upgrade)"
             done < <(jq -rn --argjson reg "$reg_json" --argjson adds "$added_arr" \
@@ -759,11 +798,11 @@ done
 echo ""
 
 # Count available
-total_count=$(jq '.models | length' <<<"$reg_json")
+total_count=$(jq '.models | length' <<<"$reg_json") || total_count=0
 available_count=$(jq --arg max "$PRIVACY_TIER" '
     [.models | to_entries[] | select(
         ((.value.privacy_tier // "4" | tostring | split("_")[0] | tonumber? // 4)) <= ($max | tonumber)
-    )] | length' <<<"$reg_json")
+    )] | length' <<<"$reg_json") || available_count=0
 
 echo -e "  ${DIM}Available: $available_count / $total_count models at tier $PRIVACY_TIER${NC}"
 
