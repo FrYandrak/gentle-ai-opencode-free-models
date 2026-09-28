@@ -101,18 +101,28 @@ When a new model appears on Zen it is added with a **default tier**. Verify its 
 
 ### Model selection rules
 
+**Every role is selected by the same criteria: best privacy allowed first, then most headroom. `role_chains` are ordered fallback lists only — never the primary ranking.**
+
+1. **Tier gate** — a candidate must pass your active tier (`.privacy-config` → `privacy_max_tier`, loaded by `load_privacy_tier`); a model with no `privacy_tier` in the registry counts as tier 4.
+2. **Candidate filter** — free registry ids (`.models`: `opencode/big-pickle` or ids ending in `-free`) whose `output_limit` meets the role floor: `thresholds.role_minimums[role]` when the registry defines one, else `thresholds.general_large_payload`.
+3. **Sort** — privacy tier ascending → `output_limit` descending → `context_window` descending → id ascending. First candidate wins.
+4. **Chain fallback** — no candidate → first entry of `role_chains[role]` (else `role_chains.default`) that is free, present in `.models`, and tier-eligible; the `big-pickle` terminal append stays.
+5. **`NONE`** — still nothing → the agent gets `NONE` and `./apply-model-config.sh` prints a visible skip warning — never a silent low-limit assignment.
+
+Selection lives in **`select-role-model.sh` → `select_role_model`** (single source of truth); role names are resolved through `role_aliases` first. `./generate-agent-config.sh` re-runs the whole calculation from the registry, so assignments self-correct when models, limits, or tiers change.
+
+> **Intended consequence:** with `privacy_max_tier=3`, privacy-first ordering resolves most or all roles to `opencode/space-bunny-free` (tier 1, largest output headroom). That is the design working — privacy is the primary valued parameter. Chains only decide anything when the criteria path finds no candidate.
+
 **For subagents that emit large payloads, `output_limit` — not `context_window` — is the binding model parameter.**
 
 | Concept | Meaning |
 |---------|---------|
 | `context_window` | Bounds how much INPUT fits. It says nothing about what the model can emit. |
 | `output_limit` | Max output tokens per response — this is what a `finish: "length"` death exhausts. |
-| General warning threshold — **64000** (`thresholds.general_large_payload`) | Below this, a model must not be assigned to any subagent that emits large structured payloads (reports, lens JSON). `generate-agent-config.sh` prints a warning when the guard sees such an assignment. |
-| Review floor — **128000** (`thresholds.role_minimums.review`) | Review lenses are the heaviest payloads we emit, so the `review` role demands this much output headroom. A model below the floor can never become a reviewer. |
+| General warning threshold — **64000** (`thresholds.general_large_payload`) | Below this, a model must not be assigned to any subagent that emits large structured payloads (reports, lens JSON). It is also the **default selection floor** for every role without an entry in `thresholds.role_minimums`. `generate-agent-config.sh` prints a warning when the guard sees an assignment below it (defense-in-depth: selection applies the same floor on the primary path, and the guard still catches under-allocated chain-fallback assignments). |
+| Review floor — **128000** (`thresholds.role_minimums.review`) | Review lenses are the heaviest payloads we emit, so the `review` role demands this much output headroom on the primary selection path; anything below the floor trips the generator's warning guard instead of passing silently. |
 
 **Why two different numbers?** Both trace back to one observed failure: a model with an output budget of 32000 tokens died with `finish: "length"` after reasoning away its whole budget and emitting nothing (`mimo-v2.6-flash-free`, `reasoning=32000/output=0`, confirmed in `opencode.db`). The general warning sits at **2×** that failure — the zone where any large-payload subagent is at risk. The review floor sits at **4×** it — the headroom review-lens JSON needs once reasoning overhead is counted. The authoritative values live in **`privacy-tier-registry.json` → `selection_rules.thresholds`**: change the number there, re-run `./generate-agent-config.sh`, and behavior changes — no script edits.
-
-**Review role: dynamic selection, no fallback.** The `review` role has **no static chain**. On each generation, code picks the model with the **highest `output_limit`** among free, privacy-tier-eligible models that meet the review floor — automatically, as tiers and the model catalog change. `big-pickle` is **never** a reviewer (it remains the fallback for every other role — that difference is intentional). If no model qualifies at your tier, the review agents get `NONE` and `./apply-model-config.sh` prints a visible skip warning — never a silent low-limit assignment.
 
 **Sync risk:** `review-*` agent blocks are marked `__managed_by: gentle-ai/sdd`, so `gentle-ai sync` may revert assigned models. Re-apply with `./apply-model-config.sh`.
 
@@ -144,7 +154,7 @@ This is a **server-side free-tier limit**, not a config bug here. The same model
 | Wrong privacy ceiling | Stale or hand-edited `.privacy-config` | Re-run `./privacy-setup.sh` |
 | New model missing or mis-tiered | Registry default not reviewed | Edit `privacy-tier-registry.json`, re-run `generate-agent-config.sh` |
 | Sub-agent stream rejected | Free-tier server limit (see above) | Retry after a pause |
-| 4R lens fails with `opencode_task_output_empty` (`opencode.db` shows `finish: "length"`) | Assigned model's `output_limit` too small — reasoning consumed the whole budget | Reviewers are bound dynamically to the highest-`output_limit` model meeting `selection_rules.thresholds.role_minimums.review`; re-run `./generate-agent-config.sh && ./apply-model-config.sh` (if no model qualifies you get a visible skip warning, not a bad assignment) |
+| 4R lens fails with `opencode_task_output_empty` (`opencode.db` shows `finish: "length"`) | Assigned model's `output_limit` too small — reasoning consumed the whole budget | Assignments are criteria-driven (privacy tier first, then output headroom — see "Model selection rules"); re-run `./generate-agent-config.sh && ./apply-model-config.sh` (if no model qualifies you get a visible skip warning, not a bad assignment) |
 
 ## Repository notes
 

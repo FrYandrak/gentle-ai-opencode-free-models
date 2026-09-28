@@ -49,9 +49,10 @@ declare -A AGENT_ROLES=(
 )
 
 # Agent names that exist in opencode.jsonc as sdd-*-free-models
-# review-* agents emit large JSON payloads; their model must clear
-# selection_rules.thresholds.role_minimums.review — enforced by
-# select_role_model in select-role-model.sh (single source of selection).
+# Every selected model must clear its role's output floor
+# (selection_rules.thresholds.role_minimums[role], else
+# thresholds.general_large_payload) — enforced by select_role_model in
+# select-role-model.sh (single source of selection).
 AGENT_NAMES=(
     "gentle-orchestrator"
     "sdd-orchestrator-free-models"
@@ -84,8 +85,8 @@ for agent_name in "${AGENT_NAMES[@]}"; do
     if [ "$agent_name" = "gentle-orchestrator" ]; then
         role="orchestrator"
     elif [[ "$agent_name" == review-* ]]; then
-        # review-* → review: dynamic selection via
-        # selection_rules.thresholds.role_minimums (highest output_limit)
+        # review-* → review: same criteria-driven selection as every role;
+        # its floor comes from selection_rules.thresholds.role_minimums
         role="review"
     else
         suffix="${agent_name#sdd-}"
@@ -137,11 +138,14 @@ generated=$(jq -n \
 ')
 
 # OUTPUT_LIMIT GUARD — see odd/tasks/review-lens-model.md
-# Warn (stderr only — stdout stays pure JSON for apply-model-config.sh) when
-# an assigned model cannot emit large payloads. Thresholds come from
-# selection_rules.thresholds in the registry: per agent,
-# max(general_large_payload, role_minimums[role] // 0). Warning only — a
-# regeneration never hard-fails (exit stays 0).
+# Defense-in-depth: select_role_model enforces these thresholds on the
+# criteria-driven pick, but the chain fallback does not gate on
+# output_limit — a stale chain can still under-allocate, so this guard
+# keeps warning. Warn (stderr only — stdout stays pure JSON for
+# apply-model-config.sh) when an assigned model cannot emit large payloads.
+# Thresholds come from selection_rules.thresholds in the registry: per
+# agent, max(general_large_payload, role_minimums[role] // 0). Warning only —
+# a regeneration never hard-fails (exit stays 0).
 while IFS=$'\t' read -r guard_agent guard_model guard_limit guard_threshold; do
     [ -n "$guard_agent" ] || continue
     echo "WARNING: agent '$guard_agent' assigned model '$guard_model' with output_limit=$guard_limit (< threshold $guard_threshold)." >&2

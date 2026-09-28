@@ -27,7 +27,7 @@ source ./select-role-model.sh && load_privacy_tier \
 
 | Tier | Label | Models Available |
 |------|-------|-----------------|
-| 1 | Strict Privacy | ❌ None |
+| 1 | Strict Privacy | Space Bunny, LongCat Preview |
 | 2 | Anonymous Improvement | Nemotron Ultra, Nemotron Lightning |
 | 3 | Model Improvement | MiMo, Ling Flash, Big Pickle |
 | 4 | Accept All | All free models (see registry notes) |
@@ -38,7 +38,8 @@ Defined once in `.privacy-config` (`privacy_max_tier`) via `./privacy-setup.sh` 
 
 | Model | Privacy Tier | Best For |
 |-------|-------------|----------|
-| MiMo-V2.6 Flash | 3 | Planning, review (live default) |
+| Space Bunny | 1 | Live default — privacy-first pick for every role at tier ≥ 1 |
+| MiMo-V2.6 Flash | 3 | Planning, fast reasoning |
 | MiMo-V2.5 | 3 | Listed but currently broken on Zen — fallback only |
 | Nemotron Ultra | 2 | Large codebase analysis |
 | Nemotron Lightning | 2 | Quick verification |
@@ -49,6 +50,6 @@ Defined once in `.privacy-config` (`privacy_max_tier`) via `./privacy-setup.sh` 
 
 - Source of truth: `privacy-tier-registry.json` → `selection_rules` / `role_chains` / `role_aliases`
 - The daily check verifies limits against `https://models.dev/api.json` and privacy against the official OpenCode Zen docs §Privacy section: newly added models get verified data at add time; drift on existing entries is reported, never auto-fixed
-- Shared selector: `select-role-model.sh` (free-only, `tier <= max_tier`; Big Pickle terminal for non-review chains; review binds dynamically via `selection_rules.thresholds.role_minimums`)
+- Shared selector: `select-role-model.sh` — criteria-driven for every role: free ids with `tier <= max_tier` and `output_limit >=` the role floor (`selection_rules.thresholds.role_minimums[role]`, else `general_large_payload`), sorted tier ↑ → output ↓ → context ↓ → id ↑; `role_chains` are ordered fallbacks only (big-pickle terminal kept)
 - Scripts source the lib — catalog changes touch the registry only
 - Model-testing harness is **cancelled** (free-token budget)

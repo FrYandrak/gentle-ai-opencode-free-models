@@ -12,7 +12,7 @@
     },
     "threshold_rationale": "Both thresholds derive from the observed 32000-token finish=length failure on large structured payloads: general_large_payload (64000) is the warning zone for any subagent emitting large payloads, at 2x that failure; role_minimums.review (128000) is 4x the failure baseline, the floor for review-lens JSON payloads once reasoning overhead is counted. Code reads ONLY selection_rules.thresholds; prose in this file must not restate these numbers independently of the object.",
     "large_payload_threshold": "Models whose output_limit is below thresholds.general_large_payload must NOT be selected for subagents that emit large structured payloads (review lenses, reports); generate-agent-config.sh warns before such an assignment. The numeric value lives only in thresholds.general_large_payload — code reads that key, not this prose.",
-    "review_role_selection": "The review role has no static chain (role_chains.review was removed). Code selects dynamically among free, tier-eligible models (ids opencode/big-pickle or *-free present in .models) whose output_limit >= thresholds.role_minimums.review; the highest output_limit wins, ties break by id ascending. No big-pickle append happens in this branch. If no model qualifies, the agent receives NONE and apply-model-config.sh prints a visible skip warning — never a silent low-limit assignment.",
+    "role_selection": "select_role_model applies one criteria-driven path to every role (role_aliases resolved first). Candidates are the free ids in .models (opencode/big-pickle and ids ending in -free) whose numeric privacy_tier prefix is <= the max_tier argument (a missing privacy_tier counts as the highest tier) and whose output_limit >= the role's minimum: thresholds.role_minimums[role] when the registry defines one, else thresholds.general_large_payload. Candidates sort privacy tier ascending, then output_limit descending, then context_window descending, then id ascending — the first one wins. When no candidate qualifies, selection falls back to role_chains[role] (or role_chains.default), taking the first entry that is free, present in .models, and tier-eligible; chains keep their opencode/big-pickle terminal append and are ordered fallback lists only, never the primary ranking. If nothing qualifies either way, select_role_model echoes NONE and still returns 0. All numeric values live only in thresholds — code reads that object, not this prose.",
     "limits_source": "https://models.dev/api.json — limits corrected 2026-09-24",
     "limits_reverify": "Re-verify limits: daily-check.sh now performs this automatically — on every run it fetches https://models.dev/api.json, applies verified context_window/output_limit to models newly added to the registry at add time, and prints a yellow advisory when an existing entry has drifted (existing entries are never auto-corrected by the daily run). The manual procedure below remains the offline fallback: fetch https://models.dev/api.json and compare context_window/output_limit for every model referenced by role_chains against the registry entries; refresh last_updated with the check date. Run it when a new model appears on Zen and at least quarterly, or whenever the automated check cannot reach the source, so the corrected limits cannot go silently stale.",
     "privacy_source": "https://opencode.ai/docs/zen/#privacy — the Privacy section lists the models whose data may be used to improve or train models, and states zero-retention + no training for every model not in that exception list. daily-check.sh classifies privacy from that page at add time (writing the tier, the verbatim matched statement as evidence, and this URL) and reports tier drift on every daily run as a yellow advisory only. A tier may only be raised on an affirmative statement on that page; absence of evidence keeps the model at its current tier (fail-closed) — absence of evidence is not evidence. Manually verify this page whenever the docs change or whenever the automated check cannot reach them."
@@ -253,68 +253,68 @@
   },
   "role_chains": {
     "orchestrator": [
-      "opencode/mimo-v2.6-flash-free",
-      "opencode/mimo-v2.5-free",
       "opencode/nemotron-3-ultra-free",
-      "opencode/big-pickle"
+      "opencode/big-pickle",
+      "opencode/mimo-v2.5-free",
+      "opencode/mimo-v2.6-flash-free"
     ],
     "explore": [
       "opencode/nemotron-3-ultra-free",
-      "opencode/mimo-v2.6-flash-free",
+      "opencode/big-pickle",
       "opencode/mimo-v2.5-free",
-      "opencode/big-pickle"
+      "opencode/mimo-v2.6-flash-free"
     ],
     "research": [
       "opencode/nemotron-3-ultra-free",
-      "opencode/mimo-v2.6-flash-free",
+      "opencode/big-pickle",
       "opencode/mimo-v2.5-free",
-      "opencode/big-pickle"
+      "opencode/mimo-v2.6-flash-free"
     ],
     "design": [
-      "opencode/mimo-v2.6-flash-free",
-      "opencode/mimo-v2.5-free",
       "opencode/nemotron-3-ultra-free",
-      "opencode/big-pickle"
+      "opencode/big-pickle",
+      "opencode/mimo-v2.5-free",
+      "opencode/mimo-v2.6-flash-free"
     ],
     "spec": [
-      "opencode/ling-3.0-flash-fin-free",
       "opencode/nemotron-3.5-lightning-free",
-      "opencode/mimo-v2.6-flash-free",
+      "opencode/ling-3.0-flash-fin-free",
+      "opencode/big-pickle",
       "opencode/mimo-v2.5-free",
-      "opencode/big-pickle"
+      "opencode/mimo-v2.6-flash-free"
     ],
     "tasks": [
-      "opencode/ling-3.0-flash-fin-free",
       "opencode/nemotron-3.5-lightning-free",
-      "opencode/mimo-v2.6-flash-free",
+      "opencode/ling-3.0-flash-fin-free",
+      "opencode/big-pickle",
       "opencode/mimo-v2.5-free",
-      "opencode/big-pickle"
+      "opencode/mimo-v2.6-flash-free"
     ],
     "archive": [
-      "opencode/ling-3.0-flash-fin-free",
       "opencode/nemotron-3.5-lightning-free",
-      "opencode/mimo-v2.6-flash-free",
+      "opencode/ling-3.0-flash-fin-free",
+      "opencode/big-pickle",
       "opencode/mimo-v2.5-free",
-      "opencode/big-pickle"
+      "opencode/mimo-v2.6-flash-free"
     ],
     "apply": [
-      "opencode/mimo-v2.6-flash-free",
-      "opencode/mimo-v2.5-free",
       "opencode/nemotron-3.5-lightning-free",
-      "opencode/big-pickle"
+      "opencode/big-pickle",
+      "opencode/mimo-v2.5-free",
+      "opencode/mimo-v2.6-flash-free"
     ],
     "verify": [
       "opencode/nemotron-3.5-lightning-free",
       "opencode/nemotron-3-ultra-free",
       "opencode/ling-3.0-flash-fin-free",
-      "opencode/mimo-v2.6-flash-free",
-      "opencode/big-pickle"
+      "opencode/big-pickle",
+      "opencode/mimo-v2.6-flash-free"
     ],
     "default": [
-      "opencode/mimo-v2.6-flash-free",
-      "opencode/mimo-v2.5-free",
       "opencode/nemotron-3-ultra-free",
-      "opencode/big-pickle"
+      "opencode/big-pickle",
+      "opencode/mimo-v2.5-free",
+      "opencode/mimo-v2.6-flash-free"
     ]
   },
   "role_aliases": {

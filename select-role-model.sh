@@ -36,24 +36,24 @@ registry_thresholds_present() {
 }
 
 # select_role_model ROLE MAX_TIER
-# Echoes the selected model id, or NONE when no candidate passes all gates
-# (free-only AND exists in .models AND numeric privacy_tier prefix
-# <= MAX_TIER; missing privacy_tier counts as tier 4).
-# Two selection modes, keyed on the canonical role (after role_aliases):
-#   - DYNAMIC (role has an entry in selection_rules.thresholds.role_minimums):
-#     candidates are all free models (.models ids opencode/big-pickle or
-#     *-free) that are tier-eligible AND meet the role's output_limit
-#     minimum; highest output_limit wins (ties: id ascending). No
-#     big-pickle append. None qualify → NONE.
-#   - STATIC (everything else): first match in role_chains.<role> (with the
-#     usual big-pickle append) wins.
-# Always returns 0.
+# Echoes the selected model id, or NONE when nothing qualifies. ALWAYS
+# returns 0 — failure is signalled only by the NONE echo.
+# Selection is criteria-driven for EVERY role (a single path), keyed on the
+# canonical role (after role_aliases):
+#   1. Candidates: free ids in .models (opencode/big-pickle or *-free) whose
+#      numeric privacy_tier prefix <= MAX_TIER (missing privacy_tier counts
+#      as tier 4) and whose output_limit >= min, where min =
+#      selection_rules.thresholds.role_minimums[role] when the registry
+#      defines one, else selection_rules.thresholds.general_large_payload.
+#   2. Sort: privacy tier asc → output_limit desc → context_window desc →
+#      id asc. The first candidate wins.
+#   3. No candidate → fallback to role_chains[role] // role_chains.default:
+#      first entry that is free AND exists in .models AND tier-eligible
+#      (the chain keeps its usual opencode/big-pickle terminal append).
+#   4. Still nothing → NONE.
 # Fail-closed (R3-1): even when the registry file exists, a registry
 # missing selection_rules.thresholds (general_large_payload + role_minimums)
 # refuses selection — one WARNING on stderr, model stays empty → NONE.
-# Note: this gate is tier-driven; for roles without a threshold entry,
-# output_limit remains the caller's concern (chain via role_chains /
-# selection_rules), not a filter here.
 select_role_model() {
     local role="${1:-}"
     local max_tier="${2:-}"
@@ -71,24 +71,27 @@ select_role_model() {
             | . as $reg
             | ($reg.models // {}) as $models
             | (((.selection_rules // {}).thresholds // {}).role_minimums // {}) as $role_minimums
-            | (if ($role_minimums | has($canon))
-               then
-                   # DYNAMIC branch (see selection_rules.thresholds.role_minimums):
-                   # highest output_limit among free, tier-eligible models
-                   # meeting the minimum; NO big-pickle append; empty → NONE.
-                   (($role_minimums[$canon] | tonumber? // 0)) as $min
-                   | [ $models | to_entries[]
-                       | .key as $id
-                       | select($id == "opencode/big-pickle" or ($id | endswith("-free")))
-                       | ((.value.privacy_tier // "4") | tostring | split("_")[0] | tonumber? // 4) as $t
-                       | select($t <= $max)
-                       | ((.value.output_limit // 0) | tonumber? // 0) as $ol
-                       | select($ol >= $min)
-                       | {id: $id, ol: $ol}
-                     ]
-                   | sort_by([(-.ol), .id])
-                   | (.[0].id // empty)
+            | (((.selection_rules // {}).thresholds // {}).general_large_payload // 0) as $general
+            | (($role_minimums[$canon] // $general) | tonumber? // 0) as $min
+            # Criteria-driven pick: free + tier-eligible + output_limit >= min,
+            # sorted tier asc → output desc → context desc → id asc.
+            | ([ $models | to_entries[]
+                | .key as $id
+                | select($id == "opencode/big-pickle" or ($id | endswith("-free")))
+                | ((.value.privacy_tier // "4") | tostring | split("_")[0] | tonumber? // 4) as $t
+                | select($t <= $max)
+                | ((.value.output_limit // 0) | tonumber? // 0) as $ol
+                | select($ol >= $min)
+                | {id: $id, t: $t, ol: $ol, ctx: ((.value.context_window // 0) | tonumber? // 0)}
+              ]
+              | sort_by([.t, (-.ol), (-.ctx), .id])
+              | (.[0].id // null)) as $picked
+            | (if $picked != null
+               then $picked
                else
+                   # Chain fallback: role_chains[role] // role_chains.default —
+                   # first free, existing, tier-eligible entry (big-pickle
+                   # terminal append preserved).
                    (($reg.role_chains // {})[$canon] // ($reg.role_chains // {}).default // []) as $chain0
                    | (if (($chain0 | length) == 0 or ($chain0[-1] != "opencode/big-pickle"))
                       then ($chain0 + ["opencode/big-pickle"])
@@ -100,8 +103,10 @@ select_role_model() {
                      | select($models | has($id))
                      | (($reg.models[$id].privacy_tier // "4") | tostring | split("_")[0] | tonumber? // 4) as $t
                      | select($t <= $max)
-                     ][0] // empty
+                     | $id
+                     ][0] // null
                end)
+            | if . == null then empty else . end
         ' "$SELECT_ROLE_REGISTRY_FILE" 2>/dev/null) || model=""
         fi
     fi
