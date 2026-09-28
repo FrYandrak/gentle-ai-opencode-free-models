@@ -879,11 +879,14 @@ else
             echo -e "${YELLOW}Registry will be updated with available models.${NC}"
 
             # Report only models that are actually new to the registry.
+            # `. as $id` before the select: inside `select(...)` the `|` would
+            # rebind `.` to $reg.models, and `has("opencode/" + .)` would then
+            # concatenate a string with an object (jq error 5 → silent report).
             added_arr=$(printf '%s' "$added" | jq -Rn '[inputs | select(length > 0)]') || added_arr="[]"
             while IFS= read -r model; do
                 [ -n "$model" ] && echo -e "    ${GREEN}+ Added to registry: $model${NC} (default tier 4 — verify privacy to upgrade)"
             done < <(jq -rn --argjson reg "$reg_json" --argjson adds "$added_arr" \
-                '$adds[] | select(($reg.models // {}) | has("opencode/" + .) | not)')
+                '$adds[] | . as $id | select((($reg.models // {}) | has("opencode/" + $id)) | not)')
 
             # Batch: add new, remove gone, stamp timestamp — single jq + one write.
             apply_registry_changes "$added" "$removed"
