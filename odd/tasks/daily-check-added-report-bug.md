@@ -73,7 +73,30 @@ Semantics preserved: only ids absent from the registry are reported; ids already
 - [x] Feature document created (ODD step 5) before the first source write.
 - [x] T1 fix applied — route: **direct inline** (single mechanical expression, already-understood fix; no research or design decision, so no writer delegation needed; documented here so the skipped delegation is observable).
 - [x] T2 verification recorded above as `<command>: <observed result>`.
-- Pending: work-unit commit + RDD assess.
+- [x] Work-unit commit `29f5497` `fix(daily-check): bind the jq element before the added-model has() test` (4 insertions, 1 deletion, one hunk).
+- [x] RDD assess of `29f5497` (base `3536cfc`) → `risk: high` (`process_boundary`, `shell_source`), 2 paths / 84 authored changed lines, `review_due: true` → native review started.
+
+## Native review closure (candidate `29f5497`)
+- Consent: `gentle-ai.review-integration.consent/v3` presented for this candidate; human answered **granted**; the exact `granted` invocation ran once.
+- Lineage `review-a9ff39fe3f331b8e`; target `sha256:fd9a412ae71839228943611244142c9da501ac9de25962207f5a056c2c98c69d`; base tree `e6ad9a4f27eb04849e66d335443e8ad60729c880`; candidate tree `58cae195f70505a5c061628771d6bd679b8fdf9f`; `correction_budget: 42`.
+- Four lenses admitted in provider order: `review-risk` → `rart1_7e576a50…`, `review-resilience` → final admitted capture (owned reduction/closure), `review-readability` → `rart1_c82a1c4f…`, `review-reliability` → `rart1_5a9d3d61…`.
+- **Outcome: `approved`, zero blocking findings, no correction required.** Exact acknowledgement ran once → `gentle-ai.review-acknowledged/v1`, `authority: burned`, consumed revision `sha256:aa0b67ac32502a573a849fc027bf91883778bbd1fa0d312c9162eb8ecbadf6e2`.
+- The burn destroys the transaction artifact, so the advisory finding bodies are no longer on disk; identifiers transcribed from the closure envelope at capture time:
+
+| Finding | Where | Notes |
+| --- | --- | --- |
+| `R1-TERMINAL-ESCAPE-REACTIVATED` | `daily-check.sh:889` (WARNING) | informational |
+| `R2-DOC-CONTRADICTION` | docs | informational |
+| `R2-DOC-LINE-REFS` | docs | informational |
+| `R2-DOC-UNVERIFIED-T2` | docs | informational |
+| `R3-DOC-UNIT-REPRO-CONTRADICTION` | docs | informational |
+| `R3-NO-COMMITTED-REGRESSION-ASSERTION` | docs | informational |
+| `R3-PREFIX-AND-EMPTY-REGISTRY-AMBIGUITY` | `daily-check.sh` | informational |
+| `R3-REPORT-PATH-FAILS-SILENT` | `daily-check.sh` | informational |
+| `R4-COMMENT-FRAMING` | `daily-check.sh` | informational |
+
+  All carry `disposition: informational`; the closure states **none reopens this review**. Several are doc-quality observations about this very document — recorded as follow-ups, not acted on here (their full text was burned with the artifact, so no fix can be derived from them without re-running a review on a later candidate).
 
 ## Delivery
 - Strategy: `ask-on-risk`; forecast ≈ 1-5 authored changed lines (far under 400 → single work unit).
+- Reviewed boundary advanced to `29f5497` after acknowledgement. Push and any follow-up docs pass remain human decisions under ordinary repository policy.
