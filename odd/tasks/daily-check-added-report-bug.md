@@ -99,4 +99,4 @@ Semantics preserved: only ids absent from the registry are reported; ids already
 
 ## Delivery
 - Strategy: `ask-on-risk`; forecast ≈ 1-5 authored changed lines (far under 400 → single work unit).
-- Reviewed boundary advanced to `29f5497` after acknowledgement. Push and any follow-up docs pass remain human decisions under ordinary repository policy.
+- Boundary after acknowledgement: `29f5497` (approved). The closure commit `4299851` (docs only) assessed `risk: passive`, `review_due: false`, so the boundary advanced to `4299851`. Push and any follow-up docs pass remain human decisions under ordinary repository policy.
