@@ -21,6 +21,9 @@ source ./select-role-model.sh && load_privacy_tier \
 
 # 5. Upstream drift check (once per day; --force to re-run)
 ./check-upstream.sh
+
+# 6. Model check frequency — check or edit (source: .model-check-config)
+grep check_frequency .model-check-config
 ```
 
 ## Privacy Tiers
@@ -33,6 +36,20 @@ source ./select-role-model.sh && load_privacy_tier \
 | 4 | Accept All | All free models (see registry notes) |
 
 Defined once in `.privacy-config` (`privacy_max_tier`) via `./privacy-setup.sh` — never hardcode a tier number.
+
+## Model Check Frequency
+
+Defined once in **`.model-check-config`** (`check_frequency=<value>`, gitignored; copy `.model-check-config.example`):
+
+| Value | Behavior |
+|-------|----------|
+| `session` | Runs on **every OpenCode startup** (plugin trigger); the shell trigger is then inert — plain terminal starts do nothing |
+| `daily` | Either trigger runs at most once per **1 day** — the default when the file/key/value is missing |
+| `weekly` | Either trigger runs at most once per **7 days** |
+| `monthly` | Either trigger runs at most once per **30 days** |
+
+- Two triggers share one stamp (`results/.last-daily-run`): `shell` (sourced from `~/.bashrc`) and `opencode` (`~/.config/opencode/plugins/model-check.ts`) — they never double-run.
+- Unknown value → falls back to `daily` with a one-line stderr notice (never crashes, never widens the window silently).
 
 ## Model Quick Stats (qualitative notes only — no scoring harness)
 

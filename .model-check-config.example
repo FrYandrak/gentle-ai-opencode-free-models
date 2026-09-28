@@ -1,0 +1,9 @@
+# Model check frequency (copy to .model-check-config — gitignored — to activate).
+# Valid values: session | daily | weekly | monthly — default: daily (used when
+# this file, the key, or the value is missing).
+#   session  = run on every OpenCode startup; the shell trigger is then inert
+#   daily    = at most once per 1 day  (default)
+#   weekly   = at most once per 7 days
+#   monthly  = at most once per 30 days
+# An unknown value falls back to daily with a one-line stderr notice.
+check_frequency=session

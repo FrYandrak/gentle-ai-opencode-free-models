@@ -19,7 +19,7 @@ Free models rotate, disappear, and change their data policies. Hardcoding a mode
 - **Privacy tiers (1–4)** — one setting (`.privacy-config`) controls every assignment
 - **Live registry** — `daily-check.sh` syncs `privacy-tier-registry.json` from the Zen API
 - **Role-based mapping** — orchestrator, explore, apply, verify, and the rest of your agents each get the best allowed model
-- **Silent daily hook** — runs once per day on shell start; failures still go to stderr
+- **Silent session-start hook** — configurable frequency (`session` / `daily` / `weekly` / `monthly`) on shell start or OpenCode startup; failures still go to stderr
 - **Model-agnostic** — works when Zen adds or drops models; no script edits required
 
 ## Privacy tiers
@@ -64,9 +64,27 @@ cd free-model-comparison
 ./apply-model-config.sh
 ```
 
-### Daily automation (optional)
+### Session-start automation (optional)
 
-`session-start-hook.sh` runs once per day when you open a terminal. It is **silent on success** (detail appended to `results/session-start.log`). Failures still print to stderr.
+`session-start-hook.sh` refreshes models automatically. It has one frequency gate and two triggers:
+
+| Trigger | Fired by | Argument |
+|---------|----------|----------|
+| `shell` (default) | `~/.bashrc` sourcing the hook on each terminal start | none (or `shell`) |
+| `opencode` | `plugins/model-check.ts` (`~/.config/opencode/plugins/`) on each OpenCode startup | `opencode` |
+
+The frequency lives in **`.model-check-config`** (gitignored user state; copy `.model-check-config.example` to create it) as `check_frequency=<value>`:
+
+| `check_frequency` | Behavior |
+|-------------------|----------|
+| `session` | Runs on **every OpenCode startup**; the `shell` trigger is then inert (nothing runs on plain terminal starts) |
+| `daily` | Either trigger runs at most once per **1 day** |
+| `weekly` | Either trigger runs at most once per **7 days** |
+| `monthly` | Either trigger runs at most once per **30 days** |
+
+Both triggers share one stamp (`results/.last-daily-run`), so they never double-run. A missing file/key/value is treated as `daily`; an unknown value falls back to `daily` and prints one stderr notice — the hook never crashes and never widens the window silently. The stamp is written only on a successful check, so a failure retries on the next trigger.
+
+The hook is **silent on success** (detail appended to `results/session-start.log`). Failures still print to stderr.
 
 Add to your `~/.bashrc`:
 
@@ -89,7 +107,7 @@ models-apply
 | `daily-check.sh` | Fetch live models, detect changes, update registry (`--interactive` to confirm changes) |
 | `generate-agent-config.sh` | Generate role→model mapping from tier + registry |
 | `apply-model-config.sh` | Patch `opencode.jsonc` with generated assignments |
-| `session-start-hook.sh` | Orchestrate daily check + config application |
+| `session-start-hook.sh` | Orchestrate model check + config application at the configured frequency (`session` / `daily` / `weekly` / `monthly`) |
 | `check-upstream.sh` | Detect upstream Gentle-AI releases that could affect agents, config, or contracts (`--force` to re-run same day) |
 | `select-role-model.sh` | Shared helpers (including `load_privacy_tier`) |
 
@@ -158,7 +176,7 @@ This is a **server-side free-tier limit**, not a config bug here. The same model
 
 ## Repository notes
 
-- `.privacy-config`, `results/`, `.engram/`, `.atl/`, and `.gga` are gitignored — your tier and logs stay local.
+- `.privacy-config`, `.model-check-config`, `results/`, `.engram/`, `.atl/`, and `.gga` are gitignored — your tier, check frequency, and logs stay local (`.model-check-config.example` is the tracked copyable default).
 - `AGENTS.md` and `odd/tasks/` document how *this* repository is developed (agent-driven workflow). They are not required to use the tool.
 
 ## Contributing

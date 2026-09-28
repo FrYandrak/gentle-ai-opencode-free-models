@@ -1,6 +1,9 @@
 # Privacy config (user-specific)
 .privacy-config
 
+# Model check frequency (user-specific; .model-check-config.example is tracked)
+.model-check-config
+
 # Results and snapshots
 results/
 
