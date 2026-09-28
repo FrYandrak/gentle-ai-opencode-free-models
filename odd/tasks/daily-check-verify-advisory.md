@@ -119,3 +119,13 @@ substitution anywhere in the script reintroduces the exact T9 outage bug
   run in a /tmp copy exit 0 with 3 yellow notices, real worktree still only the
   2 intended files. Work-unit commit: `refactor(daily-check): split
   verify_new_models and guard non-critical substitutions` (base `319e9bb`).
+- 2026-09-28: RDD assess `high` (process_boundary/shell_source) → native 4R
+  review `review-78b994b2b086584e` started (consent granted), 4 lenses admitted
+  (risk, resilience, readability, reliability; resilience needed 2 transport
+  retries), **approved with zero BLOCKER/CRITICAL**, authority burned
+  (`consumed_revision sha256:693223d4…`). 22 advisory findings (all
+  informational, none opens a correction): R1×1, R2×4, R3×12, R4×6 — mostly
+  "guard fallback blurs a real failure into a plausible-looking success" and
+  "the split's own new substitutions (336-339) are unguarded", plus no
+  committed test harness (R3-no-external-proof-of-refactor). Feature T0–T4
+  complete; advisory findings are candidate follow-up work, not blockers.
