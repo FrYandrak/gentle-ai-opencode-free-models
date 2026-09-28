@@ -20,6 +20,25 @@ set -e
 # resolving SCRIPT_DIR, reading privacy-tier-registry.json (at startup and
 # after writes), and the mktemp/write steps that update
 # privacy-tier-registry.json (a broken registry dir must surface loudly).
+#
+# Write-path classes (site class → effect it feeds; failure policy):
+#   own-registry → append           writes that extend privacy-tier-registry.json
+#                                   (apply_registry_changes / write_verified_fields
+#                                   mktemp+mv): FAIL-LOUD — unparseable OWN input
+#                                   aborts with a non-zero exit and NO registry
+#                                   write (no silent no-op success).
+#   own-shim → append               the same-directory *.tmp.XXXXXX staging shim
+#                                   carrying that append: FAIL-LOUD — rm + abort
+#                                   on failure; a failed shim is never mv'd in.
+#   curl → registry.*               fetched payloads feeding registry.* fields
+#                                   (add-time limits/privacy verification):
+#                                   FAIL-SOFT fetch + yellow notice; a degraded
+#                                   source never stamps a VERIFIED claim.
+#   comm/snapshot → date/count claims  diff/baseline output feeding printed
+#                                   date/count/status claims: FAIL-SOFT via
+#                                   warn_degraded (the DEGRADED flag gates every
+#                                   success claim) — never a green "current" line
+#                                   or a plausible "0 / 0" from a failed compare.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/.privacy-config"
@@ -69,6 +88,23 @@ done
 log() {
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
     echo "[$timestamp] $1" >> "$LOG_FILE"
+}
+
+# ============================================================
+# Degraded-mode advisory (T3)
+# ============================================================
+
+# Set ONLY from the main shell: a warn_degraded call inside a $(...)
+# substitution runs in a subshell and could not propagate the flag.
+# Every success claim (green "current"/"complete" lines, count lines) is
+# gated on it — a degraded run prints yellow advisories, never a confident
+# claim the failed check could not back, and still exits 0 (see header policy).
+DEGRADED=false
+
+warn_degraded() {
+    DEGRADED=true
+    echo -e "${YELLOW}⚠ $1${NC}"
+    return 0
 }
 
 # ============================================================
@@ -232,9 +268,13 @@ matched_line_for_tier() {
 # Snapshot comparison
 # ============================================================
 
+# sort reads the file directly (not `cat | sort`): a pipeline would mask a
+# read failure behind sort's exit status, making an unreadable baseline
+# indistinguishable from a legitimate empty one. Returns non-zero on failure
+# so the caller can warn_degraded instead of silently diffing against "".
 load_snapshot() {
     if [ -f "$SNAPSHOT_FILE" ]; then
-        cat "$SNAPSHOT_FILE" | sort
+        sort "$SNAPSHOT_FILE"
     fi
 }
 
@@ -251,8 +291,18 @@ save_snapshot() {
 apply_registry_changes() {
     local added=$1 removed=$2
     local added_arr removed_arr tmp_registry
-    added_arr=$(printf '%s' "$added" | jq -Rn '[inputs | select(length > 0)]') || added_arr="[]"
-    removed_arr=$(printf '%s' "$removed" | jq -Rn '[inputs | select(length > 0)]') || removed_arr="[]"
+    # Own-input integrity (T2): both lists are built by this very script, so a
+    # parse failure is a bug, not a transient fault — fail loud BEFORE any
+    # write (explicit error, non-zero exit, registry untouched). A silent
+    # `|| added_arr="[]"` no-op success would hide the bug behind an empty diff.
+    if ! added_arr=$(printf '%s' "$added" | jq -Rn '[inputs | select(length > 0)]'); then
+        echo -e "${RED}Error: could not parse the added-model list (own input) — registry not written.${NC}" >&2
+        exit 1
+    fi
+    if ! removed_arr=$(printf '%s' "$removed" | jq -Rn '[inputs | select(length > 0)]'); then
+        echo -e "${RED}Error: could not parse the removed-model list (own input) — registry not written.${NC}" >&2
+        exit 1
+    fi
     tmp_registry=$(mktemp "${REGISTRY_FILE}.tmp.XXXXXX")
     jq -n \
         --argjson reg "$reg_json" \
@@ -313,8 +363,12 @@ append_changelog() {
 # (tier 4, UNVERIFIED evidence, add-time limit defaults) — fail-closed.
 # R2-1 split: verify_new_models is a short orchestrator over three
 # single-responsibility helpers:
-#   verify_limits_for_ids    — models.dev → {id:{context,output}} (fail-soft {})
-#   verify_privacy_for_added — Zen docs → [{id,tier,line}] (fail-soft [])
+#   verify_limits_for_ids    — models.dev → {id:{context,output}}
+#                              (unavailable doc ⇒ {}; parse failure ⇒ return 1
+#                              → orchestrator's __DEGRADED__ sentinel)
+#   verify_privacy_for_added — Zen docs → [{id,tier,line}]
+#                              (no matched statement ⇒ []; parse failure ⇒
+#                              return 1 → orchestrator's __DEGRADED__ sentinel)
 #   write_verified_fields    — one jq reduce + atomic mktemp-in-dir mv,
 #                              registry write, then reg_json reload
 # The jq reduce updates every added id in a single invocation; the write is
@@ -333,10 +387,35 @@ verify_new_models() {
     if [ "$(jq 'length' <<<"$ids_json")" = "0" ]; then
         return 0
     fi
-    today=$(date +%Y-%m-%d || true)
 
-    limits_json=$(verify_limits_for_ids "$ids_json")
-    priv_arr=$(verify_privacy_for_added "$added")
+    # T1: evidence strings embed the date — an empty/unset one must never be
+    # persisted as a verification date. No date ⇒ not verified this run:
+    # keep the add-path defaults and say so instead of stamping blanks.
+    today=$(date +%Y-%m-%d 2>/dev/null) || today=""
+    if [ -z "$today" ]; then
+        warn_degraded "could not determine today's date — add-time verification skipped, add-path defaults kept"
+        log "Add-time verification skipped: date unavailable"
+        return 0
+    fi
+
+    # T1: both substitutions are fail-loud seams — under `set -e` a helper
+    # failure would abort the whole run here. The `||` guard turns failure
+    # into a __DEGRADED__ sentinel instead, so it is distinguishable from a
+    # legitimately empty result downstream.
+    limits_json=$(verify_limits_for_ids "$ids_json") || limits_json="__DEGRADED__"
+    priv_arr=$(verify_privacy_for_added "$added") || priv_arr="__DEGRADED__"
+    if [ "$limits_json" = "__DEGRADED__" ] || [ "$priv_arr" = "__DEGRADED__" ]; then
+        warn_degraded "could not verify limits/privacy for new models this run — fail-closed add-time defaults kept for the degraded part"
+        log "Add-time verification degraded (sentinel)"
+    fi
+    # Consume the sentinel: empty results carry no verification claims into
+    # write_verified_fields (fail-closed), they only make the pass a no-op.
+    if [ "$limits_json" = "__DEGRADED__" ]; then
+        limits_json="{}"
+    fi
+    if [ "$priv_arr" = "__DEGRADED__" ]; then
+        priv_arr="[]"
+    fi
     write_verified_fields "$ids_json" "$limits_json" "$priv_arr" "$today"
     log "Add-time verification pass for: $(printf '%s' "$added" | tr '\n' ' ')"
     return 0
@@ -346,17 +425,22 @@ verify_limits_for_ids() {
     local ids_json=$1 limits_json
     # models.dev payload → {id: {context, output}} for the added ids only.
     # Only complete entries (context AND output present) are ever applied.
+    # T1: an unavailable doc is a legitimately empty result ({}), but a jq
+    # parse failure is NOT — it returns 1 so the orchestrator can degrade via
+    # the __DEGRADED__ sentinel instead of blurring failure into "no limits".
     limits_json="{}"
     if [ -n "$LIMITS_DOC" ]; then
-        limits_json=$(printf '%s' "$LIMITS_DOC" | jq -c --argjson ids "$ids_json" '
+        if ! limits_json=$(printf '%s' "$LIMITS_DOC" | jq -c --argjson ids "$ids_json" '
             [ .opencode.models | to_entries[]
               | select(.key as $k | $ids | index($k))
               | select(.value.limit.context != null and .value.limit.output != null)
               | {key: .key, value: {context: .value.limit.context, output: .value.limit.output}}
             ] | from_entries
-        ' 2>/dev/null) || limits_json="{}"
+        ' 2>/dev/null); then
+            return 1
+        fi
         if ! printf '%s' "$limits_json" | jq empty > /dev/null 2>&1; then
-            limits_json="{}"
+            return 1
         fi
     fi
     printf '%s\n' "$limits_json"
@@ -391,9 +475,14 @@ verify_privacy_for_added() {
             fi
         done <<< "$added"
     fi
-    priv_arr=$(printf '%s' "$priv_ndjson" | jq -sc '.' 2>/dev/null) || priv_arr="[]"
+    # T1: no matched statements is a legitimately empty result ([]), but a jq
+    # parse failure is NOT — return 1 so the orchestrator degrades via the
+    # __DEGRADED__ sentinel instead of blurring failure into "nothing found".
+    if ! priv_arr=$(printf '%s' "$priv_ndjson" | jq -sc '.' 2>/dev/null); then
+        return 1
+    fi
     if ! printf '%s' "$priv_arr" | jq empty > /dev/null 2>&1; then
-        priv_arr="[]"
+        return 1
     fi
     printf '%s\n' "$priv_arr"
     return 0
@@ -546,6 +635,51 @@ report_upstream_drift() {
 }
 
 # ============================================================
+# Chain staleness — ADVISORY ONLY, READ-ONLY (jq over reg_json, no writes).
+# For each role_chains entry: when the FIRST chain entry's output_limit sits
+# below selection_rules.thresholds.general_large_payload while some
+# tier-eligible free model (opencode/big-pickle or *-free) in .models already
+# meets that threshold, print one yellow advisory per stale chain. Threshold
+# and tier values are read from the registry / config by key — never
+# hardcoded. Every jq failure degrades to no advisory (guard like call sites).
+# ============================================================
+
+report_chain_staleness() {
+    local stale_lines chain_id head_id head_limit threshold
+    stale_lines=$(jq -r --arg max "${PRIVACY_TIER:-0}" '
+        (.selection_rules.thresholds // {}) as $th
+        | ($th.general_large_payload // empty) as $gen
+        | ($gen | tonumber? // 0) as $min
+        | (.models // {}) as $models
+        | ((.role_chains // {}) | to_entries[]) as $e
+        | ($e.value | if type == "array" then .[0] else empty end) as $head
+        | select($head != null)
+        | select($models | has($head))
+        | (($models[$head].output_limit // 0) | tonumber? // 0) as $ol
+        | select($ol < $min)
+        | ([ $models | to_entries[]
+             | select(.key == "opencode/big-pickle" or (.key | endswith("-free")))
+             | ((.value.privacy_tier // "4") | tostring | split("_")[0] | tonumber? // 4) as $t
+             | select($t <= ($max | tonumber? // 0))
+             | ((.value.output_limit // 0) | tonumber? // 0)
+             | select(. >= $min)
+           ] | length) as $better
+        | select($better > 0)
+        | [$e.key, $head, ($ol | tostring), ($min | tostring)] | @tsv
+    ' <<<"$reg_json" 2>/dev/null) || stale_lines=""
+
+    if [ -n "$stale_lines" ]; then
+        echo ""
+        echo -e "${BOLD}Role chain staleness (advisory):${NC}"
+        while IFS=$'\t' read -r chain_id head_id head_limit threshold; do
+            [ -z "$chain_id" ] && continue
+            echo -e "  ${YELLOW}⚠ role chain '$chain_id' starts at $head_id (output_limit $head_limit < general_large_payload $threshold) — a tier-eligible free model with more headroom is available.${NC}"
+        done <<< "$stale_lines"
+    fi
+    return 0
+}
+
+# ============================================================
 # Main daily check
 # ============================================================
 
@@ -625,10 +759,16 @@ if [ "$INTERACTIVE" = true ]; then
     echo ""
 
     if [ "$live_count" -gt 0 ]; then
-        added=$(comm -13 <(echo "$registry_models") <(echo "$live_models")) || added=""
-        removed=$(comm -23 <(echo "$registry_models") <(echo "$live_models")) || removed=""
+        # T3: a failed comm must never masquerade as "both lists empty" — that
+        # is exactly the fail-blind path that printed a green "✓ Registry is
+        # current" from a broken comparison.
+        compare_ok=true
+        added=$(comm -13 <(echo "$registry_models") <(echo "$live_models")) || compare_ok=false
+        removed=$(comm -23 <(echo "$registry_models") <(echo "$live_models")) || compare_ok=false
 
-        if [ -z "$added" ] && [ -z "$removed" ]; then
+        if [ "$compare_ok" = false ]; then
+            warn_degraded "could not compare live list with the registry — diff skipped this run"
+        elif [ -z "$added" ] && [ -z "$removed" ]; then
             echo -e "${GREEN}${BOLD}✓ Registry is current. No changes detected.${NC}"
             save_snapshot "$live_models"
         else
@@ -687,8 +827,16 @@ if [ "$INTERACTIVE" = true ]; then
 else
     # ── Non-interactive (session hook path): snapshot diff, auto-update.
 
-    # Load previous snapshot
-    prev_snapshot=$(load_snapshot) || prev_snapshot=""
+    # Load previous snapshot (T3): a MISSING snapshot is a legitimate first
+    # run (empty baseline, no warning); an UNREADABLE one is degraded — warn
+    # instead of silently diffing every live model against an empty baseline.
+    prev_snapshot=""
+    if [ -f "$SNAPSHOT_FILE" ]; then
+        if ! prev_snapshot=$(load_snapshot); then
+            prev_snapshot=""
+            warn_degraded "baseline unreadable — re-apply this session"
+        fi
+    fi
     prev_count=0
     if [ -n "$prev_snapshot" ]; then
         prev_count=$(echo "$prev_snapshot" | grep -c . || true)
@@ -700,10 +848,15 @@ else
 
     # Detect changes
     if [ "$live_count" -gt 0 ]; then
-        added=$(comm -13 <(echo "$prev_snapshot" 2>/dev/null || echo "") <(echo "$live_models")) || added=""
-        removed=$(comm -23 <(echo "$prev_snapshot" 2>/dev/null || echo "") <(echo "$live_models")) || removed=""
+        # T3: same fail-blind guard as the interactive branch — a failed comm
+        # must not turn into a green "✓ No changes detected".
+        compare_ok=true
+        added=$(comm -13 <(echo "$prev_snapshot" 2>/dev/null || echo "") <(echo "$live_models")) || compare_ok=false
+        removed=$(comm -23 <(echo "$prev_snapshot" 2>/dev/null || echo "") <(echo "$live_models")) || compare_ok=false
 
-        if [ -n "$added" ] || [ -n "$removed" ]; then
+        if [ "$compare_ok" = false ]; then
+            warn_degraded "could not compare baseline with the live list — diff skipped this run"
+        elif [ -n "$added" ] || [ -n "$removed" ]; then
             echo -e "${BOLD}Changes detected:${NC}"
 
             if [ -n "$added" ]; then
@@ -759,6 +912,7 @@ fi
 # ============================================================
 
 report_upstream_drift
+report_chain_staleness
 
 # ============================================================
 # Today's model assignments
@@ -797,19 +951,30 @@ done
 
 echo ""
 
-# Count available
-total_count=$(jq '.models | length' <<<"$reg_json") || total_count=0
-available_count=$(jq --arg max "$PRIVACY_TIER" '
-    [.models | to_entries[] | select(
-        ((.value.privacy_tier // "4" | tostring | split("_")[0] | tonumber? // 4)) <= ($max | tonumber)
-    )] | length' <<<"$reg_json") || available_count=0
+# Count available (T3): `|| x=0` fabricated a plausible "0 / 0" from a failed
+# jq — instead, one guarded compound: any failure degrades the whole line to
+# "Available: n/a" + a yellow advisory, never a fake count.
+total_count=""
+available_count=""
+if total_count=$(jq '.models | length' <<<"$reg_json") \
+    && available_count=$(jq --arg max "$PRIVACY_TIER" '
+        [.models | to_entries[] | select(
+            ((.value.privacy_tier // "4" | tostring | split("_")[0] | tonumber? // 4)) <= ($max | tonumber)
+        )] | length' <<<"$reg_json"); then
+    echo -e "  ${DIM}Available: $available_count / $total_count models at tier $PRIVACY_TIER${NC}"
 
-echo -e "  ${DIM}Available: $available_count / $total_count models at tier $PRIVACY_TIER${NC}"
-
-if [ "$available_count" -lt 3 ]; then
-    echo -e "  ${YELLOW}⚠ Low model count. Consider raising privacy tier with ./privacy-setup.sh${NC}"
+    if [ "$available_count" -lt 3 ]; then
+        echo -e "  ${YELLOW}⚠ Low model count. Consider raising privacy tier with ./privacy-setup.sh${NC}"
+    fi
+else
+    warn_degraded "model counts unavailable"
+    echo -e "  ${DIM}Available: n/a models at tier $PRIVACY_TIER${NC}"
 fi
 
 echo ""
-log "Daily check complete — $available_count models available at tier $PRIVACY_TIER"
-echo -e "${GREEN}✓ Daily check complete.${NC}"
+log "Daily check complete — ${available_count:-n/a} models available at tier $PRIVACY_TIER"
+if [ "$DEGRADED" = true ]; then
+    echo -e "${YELLOW}⚠ Daily check complete — some checks degraded (see advisories above).${NC}"
+else
+    echo -e "${GREEN}✓ Daily check complete.${NC}"
+fi
