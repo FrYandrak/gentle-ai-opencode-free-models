@@ -60,7 +60,7 @@ The project's purpose ("la gracia") is automatic selection of the most adequate 
 ## Progress
 - [x] T1..T5 implemented and verified (writer `general`, success; gatekeeper PASS: file-scope = authorized set only, spot checks re-run by parent)
 - Work-unit commit: `412bc59` — `feat(models): criteria-driven dynamic role model selection for every role`
-- RDD assess since boundary `f764a82`: covered in the same high-risk slice as `6963fec` (415 lines, 6 paths) → native review started (status preflight OK, START pending at time of writing)
+- RDD assess since boundary `f764a82`: covered in the same high-risk slice as `6963fec` → native review `review-afd771313840f719` ran over the combined 8-path / 546-line slice. Four lenses + one refuter batch completed; terminal state `escalated` (`native_stop_required`, informational for the maintainer). No finding targets this feature's files — full closure record lives in `odd/tasks/daily-check-hardening.md`.
 - Application step (user-owned, not run): `./apply-model-config.sh` must be run by the user to write the new assignments into `~/.config/opencode/opencode.jsonc` (orchestrator never edits that file; prereq warning: it will move top-level model and every agent model to `opencode/space-bunny-free`).
 
 ## Delivery

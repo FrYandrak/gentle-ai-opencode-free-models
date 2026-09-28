@@ -57,7 +57,11 @@ Policy header (L12-23) only classifies read sites, not sites feeding persisted w
 ## Progress
 - [x] T1..T5 implemented and verified (writer `general`, success; gatekeeper PASS: file-scope, spot checks re-run by parent)
 - Work-unit commit: `6963fec` — `fix(daily-check): guard degraded seams and fail-blind fallbacks`
-- RDD assess since boundary `f764a82`: risk `high` (process_boundary, shell_source) → `review_due=true` (high_risk), 6 paths / 415 lines slice → native review started (status preflight OK, START pending at time of writing)
+- RDD assess since boundary `f764a82`: risk `high` (process_boundary, shell_source) → `review_due=true` (high_risk); review covered the combined 8-path / 546-line slice (`6963fec` + `412bc59`).
+- Native review `review-afd771313840f719` (target `sha256:d5f44fb2…`, high tier, correction budget 200) — all four lenses captured (`risk`, `resilience`, `readability`, `reliability`; every capture `admission_decision: completed`) followed by one refuter batch:
+  - `R3-ADDED-VS-UNSORTED` (CRITICAL) → **refuted**: all three `comm` inputs are sorted at their producers (`fetch_zen_models | sort`, `jq | sed | sort`, `load_snapshot | sort`), both call sites carry the `compare_ok` guard, and a chmod-000 baseline run prints the yellow advisory and gates the final line.
+  - `R3-DEGRADED-FLAG-SUB` (CRITICAL, `causal_disposition: unknown`) → **not refutable natively**: unknown causality escalates the batch instead of refuting it. Parent verification says the claim is false: at `daily-check.sh:833-838` `warn_degraded` runs in the `if ! …; then` body (main shell, not inside `$(…)`), so `DEGRADED=true` propagates — repro `/tmp/opencode/shellflag.sh` prints `DEGRADED=true` → the yellow "some checks degraded" line, and the refuter's own empirical run agreed.
+  - Terminal outcome: `escalated` → `stop / native_stop_required`, `replayability: manual_action_required`, repair `unsupported`. Informational for the maintainer: no correction ran (budget unused), no approval burned, delivery unchanged (ordinary repo policy).
 - Follow-up candidate (out of scope, NOT fixed): pre-existing jq bug in the `+ Added to registry` report loop (`daily-check.sh` ~L885): `($reg.models // {}) | has("opencode/" + .)` rebinds `.`, erroring `string and object cannot be added` — the line never prints when models are added. Needs its own task + user authorization.
 
 ## Delivery
