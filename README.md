@@ -77,12 +77,14 @@ The frequency lives in **`.model-check-config`** (gitignored user state; copy `.
 
 | `check_frequency` | Behavior |
 |-------------------|----------|
-| `session` | Runs on **every OpenCode startup**; the `shell` trigger is then inert (nothing runs on plain terminal starts) |
+| `session` | Runs on **every OpenCode startup**; the `shell` trigger stays silent while the stamp is fresh and acts as a **backstop** (runs + one stderr warning) once it is older than 1 day — i.e. when the plugin is absent or failing |
 | `daily` | Either trigger runs at most once per **1 day** |
 | `weekly` | Either trigger runs at most once per **7 days** |
 | `monthly` | Either trigger runs at most once per **30 days** |
 
 Both triggers share one stamp (`results/.last-daily-run`), so they never double-run. A missing file/key/value is treated as `daily`; an unknown value falls back to `daily` and prints one stderr notice — the hook never crashes and never widens the window silently. The stamp is written only on a successful check, so a failure retries on the next trigger.
+
+`session` has no silent dead end: if the out-of-repo plugin stops running (not installed, not loaded, or failing), the shared stamp goes stale and the `shell` trigger falls back to the 1-day path and warns once on stderr instead of letting the refresh die unnoticed.
 
 The hook is **silent on success** (detail appended to `results/session-start.log`). Failures still print to stderr.
 

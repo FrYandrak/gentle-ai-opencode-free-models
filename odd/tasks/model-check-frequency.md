@@ -28,9 +28,9 @@ Roadmap memory `roadmap/next-features` (#266) queued this as the next feature on
 ## Design decisions
 - **Trigger argument.** `session-start-hook.sh [opencode|shell]` (default `shell`, so the existing `.bashrc` wiring keeps working unchanged).
 - **Gate by mode:**
-  - `session` → the `shell` trigger returns immediately (no network on every new terminal); the `opencode` trigger runs unconditionally, i.e. every OpenCode startup.
+  - `session` → the `opencode` trigger runs unconditionally (every OpenCode startup). The `shell` trigger is a **degraded-mode backstop, not an inert path**: silent while the shared stamp is fresh, and it falls back to the pre-existing 1-day path (printing one stderr warning naming the plugin) once the stamp is absent or older than 1 day. Without that backstop a plugin that never loads would disable every trigger this repository owns and leave no observable trace — the one CRITICAL raised by native review (`R4-SESSION-MODE-SILENT-TOTAL-LOSS`, corroborated).
   - `daily` / `weekly` / `monthly` → either trigger runs at most once per 1 / 7 / 30 days, decided by the existing stamp file, so the two triggers never double-run.
-  - Unknown or missing value → fail closed to `daily` (the pre-existing behavior) with a one-line stderr notice; never crash, never silently widen the window.
+  - Unknown or missing value → fail closed to `daily` (the pre-existing behavior) with a one-line stderr notice; never crash, never silently widen the window. **The same posture now extends to `session`**: it degrades to the daily path instead of degrading to nothing.
 - **Plugin follows `plugins/skill-registry.ts`**: non-awaited `execFile` so OpenCode startup stays responsive, `console.error` for diagnostics (stdout is reserved for CLI parsing), `process.env.MODEL_CHECK_REPO ?? <default>` for the repo path (mirrors `engram.ts:25`), and a path-existence guard so the plugin is inert outside a machine that has the repo.
 - **Failure policy**: any non-zero exit from the hook is logged to stderr and swallowed — a failed refresh must never block OpenCode startup.
 
@@ -60,7 +60,7 @@ Create `.model-check-config` with `check_frequency=session`, add `.model-check-c
 ## Acceptance criteria
 - [x] The frequency is readable and editable without touching any script.
 - [x] `session-start-hook.sh opencode` runs the check on every invocation when `check_frequency=session` (counter 1 → 2 on consecutive runs).
-- [x] `session-start-hook.sh shell` does nothing when `check_frequency=session` (counter 0, stderr empty, `results/` not even created — no network on plain terminal starts).
+- [x] `session-start-hook.sh shell` with `check_frequency=session` is a **backstop**, not an inert path: **(a)** fresh stamp → silent skip (counter 0, stderr empty, nothing created — no network on ordinary terminal starts while the plugin is healthy); **(b)** stamp older than 1 day or absent → runs (counter 1) and prints exactly one stderr warning naming the plugin. **Verified 20/20** in `/tmp/opencode/freqfix/run.sh`, cases (a) and (b) both PASS. *(Revised by native review: the original criterion demanded unconditional silence, which left `session` as the only value with no fallback at all.)*
 - [x] `daily`/`weekly`/`monthly` still gate both triggers off one shared stamp (fresh stamp skips, stale stamp runs: daily 8d→run/0d→skip, weekly 8d→run/2d→skip, monthly 31d→run/10d→skip).
 - [x] Missing/invalid config → `daily`, exit 0. **Refined during implementation:** a *missing* file/key/value falls back to `daily` **silently**, and the stderr notice fires only for an *unknown* (present but invalid) value. Reason: with `daily` as the fallback the shell trigger stays active, so a notice on a merely-absent file would print on every terminal start forever. The original acceptance line demanded a notice in both cases; this is a deliberate, narrower contract.
 - [x] The plugin exists, is syntactically valid, and does not block OpenCode startup (returns `{}` in 1 ms, non-awaited; skip-guard and fire path both proven).
@@ -72,12 +72,16 @@ All run by the delegated writer; items marked ✓ were spot-checked again by the
 - `bash -n session-start-hook.sh` → **exit 0** ✓ (parent re-ran).
 - `git diff --name-only` ∩ {`daily-check.sh`, `apply-model-config.sh`, `select-role-model.sh`, `generate-agent-config.sh`, `privacy-*`, `.bashrc`, `opencode.jsonc`} → **empty, scope fence clean** ✓.
 - `git status --short` → only `session-start-hook.sh`, `README.md`, `QUICK-REFERENCE.md`, `.gitignore` modified; `.model-check-config.example`, `odd/tasks/model-check-frequency.md` untracked. Diff: **4 files, +115/−16**.
-- Gate matrix, `/tmp` harness with stubbed `daily-check.sh` (counter file) + stub `apply-model-config.sh`, stamp aged with `touch -d` — **15/15 as expected, all rc=0**:
+- Gate matrix, `/tmp/freqfix/run.sh` harness with stubbed `daily-check.sh` (counter file) + stub `apply-model-config.sh`, stamp aged with `touch -d "<n> days ago"` — **20/20 as expected, all rc=0** (re-run after the review correction; the pre-correction run was 15/15):
 
 | Case | Expected | Observed |
 | --- | --- | --- |
-| `session` + shell (no arg, as `.bashrc` wires) | count=0 | 0, stderr empty |
-| `session` + opencode, run 1 → run 2 | 1 → 2 | **1 → 2** |
+| `session` + shell (no arg, fresh stamp, as `.bashrc` wires) | count=0, silent | 0, stderr empty |
+| `session` + shell, stamp 8d → **backstop** | count=1 + plugin notice | **1 + notice** |
+| `session` + shell, stamp absent → **backstop** | count=1 + plugin notice | **1 + notice** |
+| `session` + shell, stamp 1d-old (still fresh) | count=0, silent | **0, silent** |
+| `session` + shell (no arg), no stamp → **backstop** | count=1 + plugin notice | **1 + notice** |
+| `session` + opencode, consecutive runs | unconditional | **1 / 1** (fresh stamp, daily would skip) |
 | `daily` + opencode, stamp age 0d / 8d | 0 / 1 | **0 / 1** |
 | `weekly`, stamp age 8d / 2d | 1 / 0 | **1 / 0** |
 | `monthly`, stamp age 31d / 10d | 1 / 0 | **1 / 0** |
@@ -85,18 +89,32 @@ All run by the delegated writer; items marked ✓ were spot-checked again by the
 | `bogus`, fresh stamp | 0 + notice | 0, notice printed: `unknown check_frequency "bogus" … falling back to daily` |
 | `bogus`, no stamp | 1 | 1 |
 | `session` + unrecognized arg → normalized to shell | 0 | 0 |
-| `session` + shell creates no `results/` | absent | **absent** |
+| `session` + shell, fresh stamp → creates no `results/` | absent | **absent** |
+| `session` + shell, no stamp → backstop creates `results/` | present + notice | **present + notice** |
 
 - Plugin load (TypeScript): `node --input-type=module -e "import('file:///…/plugins/model-check.ts')"` → `loaded, named: function default: function`, exit 0 (Node 22.23.2 strips types; harmless `MODULE_TYPELESS_PACKAGE_JSON` warning because `~/.config/opencode/package.json` has no `"type"`).
 - Plugin skip-guard: `MODEL_CHECK_REPO=/tmp/opencode/no-such-repo …` → stderr `[model-check] skipping: hook not found: …`, exit 0, nothing run.
 - Plugin fire: `MODEL_CHECK_REPO=/tmp/opencode/plugtest …` → returned `{}` in **1 ms** (non-blocking), stub hook recorded `opencode`.
-- `bash -n` + `bash -ic` through the real `.bashrc:41` wiring → `models-apply=function`, exit 0, existing stamp mtime unchanged (sourced path stays inert under `session`).
+- `bash -n` + `bash -ic` through the real `.bashrc:41` wiring → `models-apply=function`, exit 0, existing stamp mtime unchanged (sourced path stays silent under `session` while the stamp is fresh — live stamp was 5h old at check time, so no network fired).
 - `git check-ignore -v .model-check-config` → ignored by `.gitignore:5`; `.model-check-config.example` → **not** ignored (correct).
 
 ### Not verified
 - **`tsc --noEmit`**: no local/global TypeScript package and network install is forbidden — type-level checking was not performed; the fallback module-load smoke was used instead.
 - **Live OpenCode startup loading the plugin**: needs a real OpenCode start. The plugin's load, guard, non-blocking return, and `opencode` invocation were proven with Node; the plugin will actually fire the next time OpenCode restarts.
-- **Real-repo `session` + `opencode` run**: would execute `daily-check.sh` → network, so that path was exercised only against `/tmp` stubs. The real inert (`shell`) path was checked against the live repo.
+- **Real-repo `session` + `opencode` run**: would execute `daily-check.sh` → network, so that path was exercised only against `/tmp` stubs. The real silent (`shell` + fresh stamp) path was checked against the live repo.
+
+## Native review correction (RDD, lineage `review-85bbad4509c0d23b`)
+
+Candidate `bf25bcc` was assessed `high_risk` → review_due → consent granted → 4 lenses (risk / resilience / readability / reliability) + one read-only refuter batch.
+
+- **One CRITICAL, corroborated:** `R4-SESSION-MODE-SILENT-TOTAL-LOSS` (lens `resilience`, `causal_disposition: introduced`, location `session-start-hook.sh:88`). Under `check_frequency=session` the `shell` trigger returned 0 *before* `mkdir`, lock, log, and network, so the only trigger owned by this repo was unconditionally disabled; the sole replacement lived outside the repo, and if it never loaded the refresh died with **no** stderr line, **no** log record, and no second trigger — indistinguishable from a quiet normal terminal start, and the exact opposite of the candidate's own stated fail-closed posture. `session` was also the value shipped in the tracked copyable example.
+- **Correction (one bounded, ≤126 lines):** `session` + `shell` became a **degraded-mode backstop** instead of an inert path.
+  - Healthy (shared stamp fresh, i.e. the plugin checked in within 1 day) → still silent, nothing created, no network: the user's chosen "every OpenCode startup" behavior is unchanged.
+  - Degraded (stamp absent or >1 day old) → falls back to the pre-existing 1-day path and prints one stderr warning naming `~/.config/opencode/plugins/model-check.ts`.
+  - Implemented via `RUN_UNCONDITIONAL` (only `session` + `opencode` skips the stamp gate) + `DEGRADED_BACKSTOP` (notice emitted *after* the under-lock re-check, so it prints at most once per degraded period).
+  - Docs corrected to stop claiming the `shell` trigger is "inert": `README.md`, `QUICK-REFERENCE.md`, `.model-check-config.example`, and this document.
+- **Verification after correction:** `bash -n` → exit 0; gate matrix **20/20**; scope fence still only the 5 review paths; `results/.last-daily-run` live stamp was 5h old, so the real sourced path stayed silent (no network fired).
+- Remaining non-blocking findings (WARNING/SUGGESTION, informational): `R4-STAMP-GATE-FAILS-OPEN-TO-EVERY-RUN`, `R4-SESSION-MODE-WRITES-CONFIG-DURING-CONSUMER-STARTUP`, `R4-SESSION-MODE-RETRIES-WITHOUT-BACKOFF`, `R2-PLUGIN-ABSENT-FROM-REPO`, `R1-outside-repo-plugin-execution`, plus doc/pin/sed-pattern notes.
 
 ## Progress
 - [x] Feature document created (ODD step 5) before the first source write.
@@ -104,6 +122,7 @@ All run by the delegated writer; items marked ✓ were spot-checked again by the
 - [x] T2 plugin `~/.config/opencode/plugins/model-check.ts` (68 lines, outside the repo).
 - [x] T3 config + docs (`.model-check-config`, `.example`, `.gitignore`, `README.md` +28/−… , `QUICK-REFERENCE.md` +17).
 - [x] T4 verification — see above; gatekeeper spot-checks re-ran `bash -n`, the scope fence, and the diff stat.
+- [x] T5 native review correction for `R4-SESSION-MODE-SILENT-TOTAL-LOSS` — 20/20 gate matrix re-run, docs reconciled.
 - [ ] Work-unit commit + RDD assess
 
 ## Delivery

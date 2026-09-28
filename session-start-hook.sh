@@ -6,7 +6,10 @@
 #     opencode — fired by ~/.config/opencode/plugins/model-check.ts on every
 #                OpenCode startup
 # Frequency comes from .model-check-config (`check_frequency=<value>`):
-#   session          = run on every opencode trigger; the shell trigger is inert
+#   session          = opencode trigger runs on every OpenCode startup; the
+#                      shell trigger is a degraded-mode backstop: silent while
+#                      the shared stamp is fresh, runs + warns on stderr once
+#                      the stamp is >1 day old (plugin absent or failing)
 #   daily/weekly/monthly = either trigger at most once per 1 / 7 / 30 days,
 #                        decided by the shared stamp results/.last-daily-run
 #   Missing file/key/value → daily; unknown value → daily + one stderr notice.
@@ -61,8 +64,11 @@ models-apply() {
 
 # ─── Frequency gate ──────────────────────────────────────────────────────────
 # Mode table (check_frequency × trigger):
-#   session  | shell:    return immediately, run NOTHING (no mkdir/lock/network)
-#            | opencode: run unconditionally (every OpenCode startup)
+#   session  | opencode: run unconditionally (every OpenCode startup)
+#            | shell:    run only when the shared stamp is absent or >1 day
+#            |           old — a backstop for when the out-of-repo
+#            |           ~/.config/opencode/plugins/model-check.ts plugin is
+#            |           absent or failing, announced once on stderr
 #   daily    | both triggers: run only when the shared stamp
 #   weekly   | results/.last-daily-run is absent or older than 1 / 7 / 30 days
 #   monthly  | (flock still serializes concurrent runs; the stamp is written
@@ -71,7 +77,7 @@ models-apply() {
 case "$CHECK_FREQUENCY" in
     weekly) MAX_AGE_DAYS=7 ;;
     monthly) MAX_AGE_DAYS=30 ;;
-    *) MAX_AGE_DAYS=1 ;;   # daily (and the unknown-value fallback)
+    *) MAX_AGE_DAYS=1 ;;   # daily, session backstop, and the unknown fallback
 esac
 
 # Stale = stamp absent or last written more than $1 days ago (mtime-based, so
@@ -81,14 +87,24 @@ stamp_is_stale() {
     [ -z "$(find "$LAST_RUN_FILE" -mtime "-$1" 2>/dev/null)" ]
 }
 
-if [ "$CHECK_FREQUENCY" = "session" ]; then
-    if [ "$TRIGGER" = "shell" ]; then
-        # session mode: plain terminal starts must not touch anything.
+# Only session + opencode skips the stamp gate. session + shell is NOT inert:
+# it must remain able to refresh, because a silently dead plugin would
+# otherwise disable every trigger this repository owns (fail-closed to the
+# pre-existing daily path, like every other non-session value).
+RUN_UNCONDITIONAL=0
+DEGRADED_BACKSTOP=0
+if [ "$CHECK_FREQUENCY" = "session" ] && [ "$TRIGGER" = "opencode" ]; then
+    RUN_UNCONDITIONAL=1
+fi
+
+if [ "$RUN_UNCONDITIONAL" -eq 0 ]; then
+    if ! stamp_is_stale "$MAX_AGE_DAYS"; then
+        # Healthy (or a stamped window): nothing to do, nothing to say.
         return 0 2>/dev/null || exit 0
     fi
-    # session mode + opencode trigger: run unconditionally.
-elif ! stamp_is_stale "$MAX_AGE_DAYS"; then
-    return 0 2>/dev/null || exit 0
+    if [ "$CHECK_FREQUENCY" = "session" ]; then
+        DEGRADED_BACKSTOP=1
+    fi
 fi
 
 mkdir -p "$SCRIPT_DIR/results"
@@ -102,11 +118,18 @@ if ! flock -n 9; then
     exec 9>&-
     return 0 2>/dev/null || exit 0
 fi
-if [ "$CHECK_FREQUENCY" != "session" ] && ! stamp_is_stale "$MAX_AGE_DAYS"; then
+if [ "$RUN_UNCONDITIONAL" -eq 0 ] && ! stamp_is_stale "$MAX_AGE_DAYS"; then
     # Re-check under the lock: the previous holder may have just stamped.
-    # session mode skips this — every opencode invocation must run.
+    # session + opencode skips this — every OpenCode invocation must run.
     exec 9>&-
     return 0 2>/dev/null || exit 0
+fi
+
+if [ "$DEGRADED_BACKSTOP" -eq 1 ]; then
+    # The out-of-repo trigger did not check in within MAX_AGE_DAYS. Say so:
+    # a degraded session must be observable, not indistinguishable from a
+    # quiet normal terminal start.
+    echo "[Gentle-AI] model-check backstop: no successful check in over a day while check_frequency=session — ~/.config/opencode/plugins/model-check.ts is absent or failing; running from the shell trigger" >&2
 fi
 
 today=$(date +%Y-%m-%d)

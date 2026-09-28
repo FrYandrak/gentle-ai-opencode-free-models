@@ -43,7 +43,7 @@ Defined once in **`.model-check-config`** (`check_frequency=<value>`, gitignored
 
 | Value | Behavior |
 |-------|----------|
-| `session` | Runs on **every OpenCode startup** (plugin trigger); the shell trigger is then inert — plain terminal starts do nothing |
+| `session` | Runs on **every OpenCode startup** (plugin trigger); the shell trigger only **backstops** — silent while the stamp is fresh, runs + warns on stderr once the stamp is older than 1 day |
 | `daily` | Either trigger runs at most once per **1 day** — the default when the file/key/value is missing |
 | `weekly` | Either trigger runs at most once per **7 days** |
 | `monthly` | Either trigger runs at most once per **30 days** |
