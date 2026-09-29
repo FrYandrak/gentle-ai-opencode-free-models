@@ -137,3 +137,30 @@ bash -n select-role-model.sh apply-model-config.sh session-start-hook.sh daily-c
 jq empty privacy-tier-registry.json
 bash tests/selection.sh
 ```
+## Golden assignment gate (`7a0b8ab` → `7eae9ed`) — approved
+
+Follow-up to `R4-REGISTRY-UNVERIFIED-NOW-DECIDES-ALL-AGENTS`: the live case asserted only that each role resolved to something other than `NONE`, so a wholesale reassignment passed green.
+
+`tests/selection-golden.txt` pins all 40 role×tier combinations to the model actually assigned today, and the live case diffs against it per line. Any change reports the affected-role count, the exact expected/actual pair, and the regeneration command. No tolerance, no auto-heal: the golden goes stale on a legitimate catalog change and is refreshed only after a human reads the diff.
+
+### Native review `review-74394ad8ed1c4be4` — three CRITICALs, one bounded correction, approved
+
+Assessed `high_risk` → consent granted → 4 lenses → 3 corroborated CRITICALs, all `introduced`/`deterministic`:
+
+- **`R3-1`** — the `SELECT_TEST_REGISTRY` seam was **structurally dead**: `LIVE_REGISTRY` expanded once at script start, so a case could never reach it. No test could drive the gate to a mismatch, and with all 40 golden values identical the table could not distinguish a value comparison from a key-only one.
+- **`R3-2` / `R4-baked-unresolvable-baseline`** — `update_golden` wrote whatever the selector returned with no validity precondition, and the rewrite had **dropped the `NONE`/empty check the previous version of the live case carried**. A registry that could not resolve a role could be laundered into an approved checkpoint and stay green forever — the one new command converted a hard failure into a permanently green suite.
+
+Correction (`7eae9ed`, 60-line budget): the seam now resolves at call time inside `select_live`, so an override is scoped by construction; the live case rejects any unresolvable combination **independently of the golden**; `update_golden` returns non-zero without touching the file. Both paths share one `unresolvable_combinations` predicate so they cannot drift apart. New case `golden_gate_detects_drift` proves the gate can fail: it bumps a non-winner above the incumbent in a temp registry copy and asserts both a non-zero drift count **and** a non-zero third-field divergence — the second being what distinguishes a value comparison from a key-only one.
+
+Verified: 16/16 green; `update-golden` against a NONE-yielding registry exits non-zero with the golden byte-identical; the live case goes red on a NONE resolution **even when the golden also records NONE** (the laundering path, closed).
+
+### Advisory findings at approval (21, all informational)
+
+Native: "approved and its receipt stands. None opened a correction, none reopens this review… Treat them as separate later work."
+
+**R1 risk**: `R1-env-registry-override` (WARNING, `tests/selection.sh:24` — a poisoned env value could redirect what the gate treats as the catalog; confined to the test harness, not the production selector), `R1-tmp-predictable` (WARNING, `:257` — pid-named staging file, regenerable), `R1-unbounded-mktemp-leak` (SUGGESTION, `:279`), `R1-registry-content-in-output` (SUGGESTION, `:539` — untrusted model id printed unquoted).
+**R2 readability**: `R2-DUPLICATEHEADER` (WARNING, `:150-183` — the 33-line header is duplicated byte-for-byte and nothing compares the copies), `R2-DRIFT-RUNS-THREE-TIMES` (WARNING, `:223-231`), `R2-AWK-ACCUM-REPEATED` (WARNING, `:199-215` — same accumulation pasted three times), `R2-SILENT-HEADER-LOSS` (WARNING, `:143-146` — unreadable golden is rewritten with the policy header silently stripped while reporting success), `R2-CHANGED-OVERLOADED` (WARNING, `:259-261` — first-generation reports "X of X lines changed"), `R2-HARDCODED-TABLE-SIZE` (SUGGESTION, golden `:5-6`).
+**R3 reliability**: `R3-3` (WARNING, `:195` — with an empty golden body the `FNR == NR` idiom inverts the whole drift report; fails closed but diagnoses backwards), `R3-4` (WARNING, `:533` — an empty summary line becomes a bash integer error evaluated as false, misreported as drift), `R3-5` (WARNING, `:239` — header degradation is propagated verbatim forever), `R3-6` (SUGGESTION, `:237`).
+**R4 resilience**: `R4-update-golden-without-diff` (WARNING, `:269-270` — prints only a count, so the "read the diff" step the header mandates cannot be performed), `R4-intrusted-staging-file` (WARNING, `:237-243`), `R4-unknown-arg-hard-exit` (WARNING, `:421-425` — a stray argument now yields zero coverage instead of partial tolerance), `R4-header-silently-dropped-on-rewrite` (WARNING, `:239`), `R4-awk-empty-golden-self-contradiction` (WARNING, `:195`), `R4-no-bounded-remediation-on-routine-red` (SUGGESTION, golden `:21-25`).
+
+Highest-value follow-ups: the duplicated header with no comparison between the copies, `R2-SILENT-HEADER-LOSS`/`R4-header-silently-dropped-on-rewrite` (the regeneration path can strip its own instructions), and `R3-3`'s inverted diagnosis on an empty golden.
