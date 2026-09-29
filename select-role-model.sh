@@ -45,8 +45,18 @@ registry_thresholds_present() {
 #      as tier 4) and whose output_limit >= min, where min =
 #      selection_rules.thresholds.role_minimums[role] when the registry
 #      defines one, else selection_rules.thresholds.general_large_payload.
-#   2. Sort: privacy tier asc → output_limit desc → context_window desc →
-#      id asc. The first candidate wins.
+#      The tier is a CEILING the caller chose — it FILTERS candidates and
+#      never ranks them above a capable model it is allowed to use.
+#   2. Sort: output_limit desc → context_window desc → best_for affinity
+#      (0 when the canonical role is listed in that model's best_for, else 1)
+#      → privacy tier asc → id asc. The first candidate wins. Affinity and
+#      tier are tie-breaks BELOW both capability axes: a hand-written
+#      best_for tag or a lower tier must not outrank a strictly stronger
+#      model the ceiling already permits.
+#      Canonical roles listed in selection_rules.context_first_roles swap
+#      the first two keys — context_window desc → output_limit desc — then
+#      the same three tie-breaks. That list is registry data; the selector
+#      hardcodes no role names.
 #   3. No candidate → fallback to role_chains[role] // role_chains.default:
 #      first entry that is free AND exists in .models AND tier-eligible
 #      (the chain keeps its usual opencode/big-pickle terminal append).
@@ -73,8 +83,16 @@ select_role_model() {
             | (((.selection_rules // {}).thresholds // {}).role_minimums // {}) as $role_minimums
             | (((.selection_rules // {}).thresholds // {}).general_large_payload // 0) as $general
             | (($role_minimums[$canon] // $general) | tonumber? // 0) as $min
-            # Criteria-driven pick: free + tier-eligible + output_limit >= min,
-            # sorted tier asc → output desc → context desc → id asc.
+            # context_first_roles is registry DATA, not code: a missing, null
+            # or non-array value simply means "no role flips the key order".
+            | (if (((($reg.selection_rules // {}).context_first_roles // []) | type) == "array")
+               then (((($reg.selection_rules // {}).context_first_roles // []) | index($canon)) != null)
+               else false
+               end) as $ctx_first
+            # Criteria-driven pick: free + tier-eligible + output_limit >= min.
+            # Tier FILTERS here; it only ranks as a late tie-break. aff is 0
+            # when the canonical role is listed in the best_for array
+            # (missing/null/non-array best_for = no match, never an error).
             | ([ $models | to_entries[]
                 | .key as $id
                 | select($id == "opencode/big-pickle" or ($id | endswith("-free")))
@@ -82,9 +100,18 @@ select_role_model() {
                 | select($t <= $max)
                 | ((.value.output_limit // 0) | tonumber? // 0) as $ol
                 | select($ol >= $min)
-                | {id: $id, t: $t, ol: $ol, ctx: ((.value.context_window // 0) | tonumber? // 0)}
+                | (if (((.value.best_for // []) | type) == "array")
+                   then (if ((.value.best_for // []) | index($canon)) != null then 0 else 1 end)
+                   else 1
+                   end) as $aff
+                | {id: $id, t: $t, ol: $ol,
+                   ctx: ((.value.context_window // 0) | tonumber? // 0),
+                   aff: $aff}
               ]
-              | sort_by([.t, (-.ol), (-.ctx), .id])
+              | sort_by(if $ctx_first
+                        then [(-.ctx), (-.ol), .aff, .t, .id]
+                        else [(-.ol), (-.ctx), .aff, .t, .id]
+                        end)
               | (.[0].id // null)) as $picked
             | (if $picked != null
                then $picked

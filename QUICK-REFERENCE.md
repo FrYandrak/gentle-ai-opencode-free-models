@@ -67,6 +67,6 @@ Defined once in **`.model-check-config`** (`check_frequency=<value>`, gitignored
 
 - Source of truth: `privacy-tier-registry.json` → `selection_rules` / `role_chains` / `role_aliases`
 - The daily check verifies limits against `https://models.dev/api.json` and privacy against the official OpenCode Zen docs §Privacy section: newly added models get verified data at add time; drift on existing entries is reported, never auto-fixed
-- Shared selector: `select-role-model.sh` — criteria-driven for every role: free ids with `tier <= max_tier` and `output_limit >=` the role floor (`selection_rules.thresholds.role_minimums[role]`, else `general_large_payload`), sorted tier ↑ → output ↓ → context ↓ → id ↑; `role_chains` are ordered fallbacks only (big-pickle terminal kept)
+- Shared selector: `select-role-model.sh` — criteria-driven for every role: eligible candidates are free ids with `tier <= max_tier` and `output_limit >=` the role floor (`selection_rules.thresholds.role_minimums[role]`, else `general_large_payload`); tier is a ceiling/filter, not a ranking key. Sort is output ↓ → context ↓ → `best_for` affinity → tier ↑ → id ↑, with the first two keys swapped for canonical roles in `selection_rules.context_first_roles`; `role_chains` are ordered fallbacks only (big-pickle terminal kept)
 - Scripts source the lib — catalog changes touch the registry only
 - Model-testing harness is **cancelled** (free-token budget)

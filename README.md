@@ -121,17 +121,17 @@ When a new model appears on Zen it is added with a **default tier**. Verify its 
 
 ### Model selection rules
 
-**Every role is selected by the same criteria: best privacy allowed first, then most headroom. `role_chains` are ordered fallback lists only — never the primary ranking.**
+**Every role is selected by the same criteria: most headroom first, within your tier ceiling. `role_chains` are ordered fallback lists only — never the primary ranking.**
 
-1. **Tier gate** — a candidate must pass your active tier (`.privacy-config` → `privacy_max_tier`, loaded by `load_privacy_tier`); a model with no `privacy_tier` in the registry counts as tier 4.
-2. **Candidate filter** — free registry ids (`.models`: `opencode/big-pickle` or ids ending in `-free`) whose `output_limit` meets the role floor: `thresholds.role_minimums[role]` when the registry defines one, else `thresholds.general_large_payload`.
-3. **Sort** — privacy tier ascending → `output_limit` descending → `context_window` descending → id ascending. First candidate wins.
+1. **Eligibility filter** — a candidate must pass your active tier (`.privacy-config` → `privacy_max_tier`, loaded by `load_privacy_tier`); a model with no `privacy_tier` in the registry counts as tier 4. It must also be a free registry id (`.models`: `opencode/big-pickle` or ids ending in `-free`) whose `output_limit` meets the role floor: `thresholds.role_minimums[role]` when the registry defines one, else `thresholds.general_large_payload`. The tier is a **ceiling, not a ranking key** — it decides what is allowed, never which allowed model is better.
+2. **Sort** — `output_limit` descending → `context_window` descending → `best_for` affinity (a model listing the canonical role in its `best_for` outranks an otherwise identical one) → tier ascending → id ascending. First candidate wins.
+3. **`context_first_roles` exception** — canonical roles listed in `selection_rules.context_first_roles` swap the first two keys (`context_window` desc → `output_limit` desc); the three tie-breaks are unchanged. It is registry data, so the rule is inspectable and changeable without editing the selector.
 4. **Chain fallback** — no candidate → first entry of `role_chains[role]` (else `role_chains.default`) that is free, present in `.models`, and tier-eligible; the `big-pickle` terminal append stays.
 5. **`NONE`** — still nothing → the agent gets `NONE` and `./apply-model-config.sh` prints a visible skip warning — never a silent low-limit assignment.
 
 Selection lives in **`select-role-model.sh` → `select_role_model`** (single source of truth); role names are resolved through `role_aliases` first. `./generate-agent-config.sh` re-runs the whole calculation from the registry, so assignments self-correct when models, limits, or tiers change.
 
-> **Intended consequence:** with `privacy_max_tier=3`, privacy-first ordering resolves most or all roles to `opencode/space-bunny-free` (tier 1, largest output headroom). That is the design working — privacy is the primary valued parameter. Chains only decide anything when the criteria path finds no candidate.
+> **Intended consequence:** with `privacy_max_tier=3`, capability-first ordering resolves most or all roles to `opencode/space-bunny-free` — tier 1, and the largest output and context headroom in the registry, so it dominates on every axis the sort looks at. That is the design working. Chains only decide anything when the criteria path finds no candidate.
 
 **For subagents that emit large payloads, `output_limit` — not `context_window` — is the binding model parameter.**
 
