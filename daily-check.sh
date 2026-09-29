@@ -101,9 +101,12 @@ log() {
 # claim the failed check could not back, and still exits 0 (see header policy).
 DEGRADED=false
 
+# stdout is the report stream; stderr carries the advisories, so a caller can
+# tee them somewhere visible (the session hook does) without splitting the
+# report apart.
 warn_degraded() {
     DEGRADED=true
-    echo -e "${YELLOW}⚠ $1${NC}"
+    echo -e "${YELLOW}⚠ $1${NC}" >&2
     return 0
 }
 
@@ -731,8 +734,10 @@ log "Daily check started — tier $PRIVACY_TIER"
 # (the session hook then reported "Daily check FAILED" on every shell).
 live_models=$(fetch_zen_models || true)
 if [ -z "$live_models" ]; then
-    echo -e "${YELLOW}⚠ Could not fetch live model list from OpenCode Zen.${NC}"
-    echo -e "${DIM}  Continuing with local registry.${NC}"
+    # stderr: this run verified nothing, and a fail-soft run (exit 0) must not
+    # be indistinguishable from a healthy one when only stdout is captured.
+    echo -e "${YELLOW}⚠ Could not fetch live model list from OpenCode Zen.${NC}" >&2
+    echo -e "${DIM}  Continuing with local registry.${NC}" >&2
     log "WARNING: Could not fetch live models from Zen"
     live_count=0
 else

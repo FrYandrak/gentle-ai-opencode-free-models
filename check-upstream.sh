@@ -17,7 +17,7 @@
 # Exit codes:
 #   0  success, warnings, and advisories (graceful network degradation:
 #      any fetch failure prints a yellow warning and continues)
-#   1  hard errors: missing jq, bad CLI flag
+#   1  hard errors: missing jq, bad CLI flag, unextractable AGENT_NAMES
 
 set -e
 
@@ -427,7 +427,19 @@ if [ -f "$GEN_AGENT_CONFIG" ]; then
     agent_names=$(sed -n '/^AGENT_NAMES=(/,/^)/p' "$GEN_AGENT_CONFIG" | grep -oE '"[^"]+"' | tr -d '"' || true)
 fi
 if [ -z "$agent_names" ]; then
-    echo -e "${YELLOW}⚠ Could not extract AGENT_NAMES from generate-agent-config.sh — check skipped.${NC}"
+    # FAIL-LOUD. An empty extraction used to print a yellow notice and skip
+    # the check, so a renamed generator or a reformatted AGENT_NAMES array made
+    # the agent-name dependency check vanish with a green run and a fresh stamp.
+    # This check is the only guard that a config's .agent keys still match the
+    # names generate-agent-config.sh writes, so silently dropping it defeats
+    # the point of the script.
+    echo -e "${RED}${BOLD}✗ Could not extract AGENT_NAMES from generate-agent-config.sh.${NC}" >&2
+    echo "  Expected: an AGENT_NAMES=( ... ) array of double-quoted agent names" >&2
+    echo "  (e.g. AGENT_NAMES=() then one \"sdd-apply-free-models\" per line)." >&2
+    echo "  Got nothing, so agent names could not be compared against the .agent" >&2
+    echo "  keys in $OPENCODE_CONFIG — the check is abandoned, not skipped quietly." >&2
+    log "ERROR: AGENT_NAMES extraction from $GEN_AGENT_CONFIG yielded nothing"
+    exit 1
 elif [ ! -f "$OPENCODE_CONFIG" ]; then
     echo -e "${YELLOW}⚠ opencode.jsonc not found at $OPENCODE_CONFIG — check skipped.${NC}"
 else

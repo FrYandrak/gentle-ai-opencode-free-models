@@ -13,8 +13,8 @@
 #   daily/weekly/monthly = either trigger at most once per 1 / 7 / 30 days,
 #                        decided by the shared stamp results/.last-daily-run
 #   Missing file/key/value → daily; unknown value → daily + one stderr notice.
-# Success prints nothing; failures go to stderr; full detail goes to
-# results/session-start.log.
+# Success prints nothing; failures go to stderr, as do the daily check's
+# degradation advisories; full detail goes to results/session-start.log.
 #
 # On-demand full report + apply (after this file is sourced):
 #   models-apply
@@ -137,20 +137,45 @@ today=$(date +%Y-%m-%d)
 echo "===== $(date -Iseconds) session-start daily sync =====" >>"$HOOK_LOG" 2>&1
 
 # Run daily check (fetches live models, updates registry).
-# Only stamp last-run on success so a failed check retries next session.
+# stdout is the human-readable report → logfile only. stderr carries the
+# degradation advisories → logfile AND the user's stderr. daily-check.sh is
+# fail-soft (degraded still exits 0), so without the tee a run that verified
+# nothing would be indistinguishable from a healthy one.
+# The temp file is removed explicitly rather than by a trap: this script is
+# sourced into an interactive shell, where a trap would fire on the shell's own
+# exit instead of this script's.
+check_ok=false
 if [ -f "$DAILY_CHECK" ]; then
-    if bash "$DAILY_CHECK" >>"$HOOK_LOG" 2>&1; then
-        echo "$today" > "$LAST_RUN_FILE"
-    else
+    check_err=$(mktemp)
+    if bash "$DAILY_CHECK" >>"$HOOK_LOG" 2>"$check_err"; then
+        check_ok=true
+    fi
+    if [ -s "$check_err" ]; then
+        cat "$check_err" >>"$HOOK_LOG"
+        cat "$check_err" >&2
+    fi
+    rm -f "$check_err"
+    if [ "$check_ok" != true ]; then
         echo "[Gentle-AI] Daily check FAILED — will retry on next session. Details: $HOOK_LOG" >&2
     fi
 fi
 
-# Apply model config to opencode.jsonc (reads tier + registry → patches agents)
+# Apply model config to opencode.jsonc (reads tier + registry → patches agents).
+# Runs even after a failed check: the same fail-soft contract as before.
+apply_ok=false
 if [ -f "$APPLY_CONFIG" ]; then
-    if ! bash "$APPLY_CONFIG" >>"$HOOK_LOG" 2>&1; then
+    if bash "$APPLY_CONFIG" >>"$HOOK_LOG" 2>&1; then
+        apply_ok=true
+    else
         echo "[Gentle-AI] Applying model config FAILED. Details: $HOOK_LOG" >&2
     fi
+fi
+
+# Stamp last-run only when BOTH steps succeeded. A failed check or a failed
+# apply then retries on the next trigger instead of being swallowed for a
+# whole window; the hook still never blocks a terminal start.
+if [ "$check_ok" = true ] && [ "$apply_ok" = true ]; then
+    echo "$today" > "$LAST_RUN_FILE"
 fi
 
 exec 9>&-

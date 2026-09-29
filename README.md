@@ -53,8 +53,8 @@ Session starts
 ## Install
 
 ```bash
-git clone https://github.com/FrYandrak/free-model-comparison.git
-cd free-model-comparison
+git clone https://github.com/FrYandrak/gentle-ai-opencode-free-models.git
+cd gentle-ai-opencode-free-models
 
 # 1. One-time: set your privacy preference
 ./privacy-setup.sh
@@ -71,7 +71,7 @@ cd free-model-comparison
 | Trigger | Fired by | Argument |
 |---------|----------|----------|
 | `shell` (default) | `~/.bashrc` sourcing the hook on each terminal start | none (or `shell`) |
-| `opencode` | `plugins/model-check.ts` (`~/.config/opencode/plugins/`) on each OpenCode startup | `opencode` |
+| `opencode` | `plugins/model-check.ts` (tracked in this repo, installed to `~/.config/opencode/plugins/` — see below) on each OpenCode startup | `opencode` |
 
 The frequency lives in **`.model-check-config`** (gitignored user state; copy `.model-check-config.example` to create it) as `check_frequency=<value>`:
 
@@ -82,7 +82,7 @@ The frequency lives in **`.model-check-config`** (gitignored user state; copy `.
 | `weekly` | Either trigger runs at most once per **7 days** |
 | `monthly` | Either trigger runs at most once per **30 days** |
 
-Both triggers share one stamp (`results/.last-daily-run`), so they never double-run. A missing file/key/value is treated as `daily`; an unknown value falls back to `daily` and prints one stderr notice — the hook never crashes and never widens the window silently. The stamp is written only on a successful check, so a failure retries on the next trigger.
+Both triggers share one stamp (`results/.last-daily-run`), so they never double-run. A missing file/key/value is treated as `daily`; an unknown value falls back to `daily` and prints one stderr notice — the hook never crashes and never widens the window silently. The stamp is written only when **both** the check and the config apply succeed, so a failure retries on the next trigger instead of waiting out the window.
 
 `session` has no silent dead end: if the out-of-repo plugin stops running (not installed, not loaded, or failing), the shared stamp goes stale and the `shell` trigger falls back to the 1-day path and warns once on stderr instead of letting the refresh die unnoticed.
 
@@ -93,6 +93,16 @@ Add to your `~/.bashrc`:
 ```bash
 source /path/to/free-model-comparison/session-start-hook.sh
 ```
+
+For `check_frequency=session` you also need the OpenCode trigger installed. Run this **from the repository root** — it copies the tracked `plugins/model-check.ts`, substituting `@MODEL_CHECK_REPO@` with your clone path:
+
+```bash
+mkdir -p ~/.config/opencode/plugins \
+  && sed "s|@MODEL_CHECK_REPO@|$PWD|" plugins/model-check.ts \
+     > ~/.config/opencode/plugins/model-check.ts
+```
+
+Without it, `check_frequency=session` has only the shell trigger, which then runs at most once a day as a backstop instead of on every OpenCode startup. Set `MODEL_CHECK_REPO` in the environment to point the installed plugin at a non-default checkout.
 
 After the hook is sourced, the full on-demand report is:
 

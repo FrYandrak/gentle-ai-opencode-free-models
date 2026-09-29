@@ -51,17 +51,9 @@ Defined once in **`.model-check-config`** (`check_frequency=<value>`, gitignored
 - Two triggers share one stamp (`results/.last-daily-run`): `shell` (sourced from `~/.bashrc`) and `opencode` (`~/.config/opencode/plugins/model-check.ts`) — they never double-run.
 - Unknown value → falls back to `daily` with a one-line stderr notice (never crashes, never widens the window silently).
 
-## Model Quick Stats (qualitative notes only — no scoring harness)
+## Model Assignments (no hardcoded table)
 
-| Model | Privacy Tier | Best For |
-|-------|-------------|----------|
-| Space Bunny | 1 | Live default — privacy-first pick for every role at tier ≥ 1 |
-| MiMo-V2.6 Flash | 3 | Planning, fast reasoning |
-| MiMo-V2.5 | 3 | Listed but currently broken on Zen — fallback only |
-| Nemotron Ultra | 2 | Large codebase analysis |
-| Nemotron Lightning | 2 | Quick verification |
-| Ling Flash | 3 | Documentation, tasks |
-| Muse Spark | 4 ⚠ | Creative tasks |
+There is no model table to keep in sync — assignments are computed from the registry and your tier, so a static list here would only go stale. Run `./model-selector.sh` for the live role → model assignments, and read `privacy-tier-registry.json` for the authoritative per-model data (tier, context window, output limit, `best_for`). The privacy tiers above list model *names* only as a rough guide; the registry is the source of truth.
 
 ## Assignment (model-agnostic)
 

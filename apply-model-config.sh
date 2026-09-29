@@ -1,7 +1,9 @@
 #!/bin/bash
 # Apply generated agent model config to opencode.jsonc
 # Reads generate-agent-config.sh output and patches model fields
-# Safe: only modifies "model" fields in sdd-*-free-models agents
+# Safe: only modifies "model" fields in agents the target config already
+# declares — it never creates an agent, and it refuses to write at all when
+# none of the generated agents are present.
 
 set -e
 
@@ -44,6 +46,62 @@ echo ""
 echo "Current assignments:"
 jq -r '.agents | to_entries[] | "  \(.key) → \(.value.name) (\(.value.model))"' "$config_file"
 
+# ─── Guard: only patch agents the config already declares ────────────────────
+
+# `.agent[$e.key].model = $e.value` auto-vivifies in jq, so a config with no
+# `.agent` key would silently gain model-only stubs for every agent — and the
+# script would still print "updated successfully". Resolve the intersection of
+# the generated names with the target's real `.agent` keys BEFORE any write:
+# never create an agent, never touch a file that declares none of them.
+#
+# Assumption (unchanged): the target is .jsonc but read straight by jq, so it
+# carries no comments. A comment parser stays out of scope here — see
+# check-upstream.sh for the one place that tolerates them.
+if ! jq empty "$OPENCODE_CONFIG" 2>/dev/null; then
+    echo "ERROR: $OPENCODE_CONFIG is not valid JSON for jq." >&2
+    echo "  This tool reads opencode.jsonc with jq, so comments in the file break the read." >&2
+    exit 1
+fi
+
+existing_json=$(jq -c '.agent // {} | keys' "$OPENCODE_CONFIG")
+existing_agents=$(jq -r '.[]' <<<"$existing_json")
+intended_count=$(jq -r '.agents | length' "$config_file")
+
+missing_agents=""
+present_count=0
+while IFS= read -r agent; do
+    [ -n "$agent" ] || continue
+    if printf '%s\n' "$existing_agents" | grep -qxF "$agent"; then
+        present_count=$((present_count + 1))
+    else
+        missing_agents+="$agent"$'\n'
+    fi
+done <<< "$(jq -r '.agents | keys[]' "$config_file")"
+
+if [ "$present_count" -eq 0 ]; then
+    echo "" >&2
+    echo "ERROR: none of the $intended_count generated agents exist in $OPENCODE_CONFIG." >&2
+    echo "  The file declares no matching .agent keys — what a fresh OpenCode install or a" >&2
+    echo "  non-Gentle-AI setup looks like. Patching it would fabricate agents this config" >&2
+    echo "  never had, so nothing was written (not the agents, not the top-level model)." >&2
+    echo "  Add the agents to opencode.jsonc first, then re-run." >&2
+    exit 1
+fi
+
+# Agents the target does not declare are reported and never patched. NONE
+# agents get their own line below; those are skipped for a different reason
+# (no eligible model), so they are not repeated here.
+if [ -n "$missing_agents" ]; then
+    echo ""
+    echo "  ⚠ Skipping agent(s) not declared in $OPENCODE_CONFIG:"
+    while IFS= read -r agent; do
+        [ -n "$agent" ] || continue
+        if jq -e --arg a "$agent" '.agents[$a].model != "NONE"' "$config_file" >/dev/null; then
+            echo "    ⚠ $agent"
+        fi
+    done <<<"$missing_agents"
+fi
+
 # ─── Backup current config ──────────────────────────────────────────────────
 
 BACKUP="$OPENCODE_CONFIG.pre-free-models-backup"
@@ -71,16 +129,22 @@ if [ -n "$top_model" ] && [ "$top_model" != "NONE" ]; then
     set_top=true
 fi
 
-# One jq pass sets every agent model field plus the top-level model.
+# One jq pass sets every EXISTING agent model field plus the top-level model.
+# $existing gates the assignment: an undeclared key would be auto-vivified, so
+# it is filtered out here rather than trusted.
 jq --argjson updates "$updates" \
+   --argjson existing "$existing_json" \
    --arg top "$top_model" \
    --argjson set_top "$set_top" '
-    reduce ($updates | to_entries[]) as $e (. ;
+    reduce ($updates | to_entries[] | select(.key as $k | $existing | index($k))) as $e (. ;
         .agent[$e.key].model = $e.value)
     | if $set_top then .model = $top else . end
 ' "$OPENCODE_CONFIG" > "$patched_file"
 
-jq -r '.agents | to_entries[] | select(.value.model != "NONE")
+jq -r --argjson existing "$existing_json" '
+    .agents | to_entries[]
+    | select(.value.model != "NONE")
+    | select(.key as $k | $existing | index($k))
     | "  ✓ \(.key) → \(.value.model)"' "$config_file"
 if [ "$set_top" = true ]; then
     echo "  ✓ top-level model → $top_model"
