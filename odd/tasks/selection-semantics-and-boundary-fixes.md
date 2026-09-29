@@ -69,26 +69,62 @@ Cheap local checks only — `bash -n`, `jq empty`, and `tests/selection.sh` agai
 
 ## Acceptance criteria
 
-- [ ] A tier-2 model with a larger `output_limit` than a tier-1 model is selected when the ceiling allows it (tier is a filter, not a ranking key).
-- [ ] With a fixture where one model has the larger context and another the larger output, canonical role `orchestrator` resolves to the context model and every other role resolves to the output model.
-- [ ] Two models identical on output and context: the one listing the role in `best_for` wins; with neither listing it, the lower tier wins, then the lower id.
-- [ ] Role floors still exclude below-floor models even when `best_for` matches; `review` still requires 128000.
-- [ ] Missing `selection_rules.thresholds` still yields `NONE` (fail-closed preserved).
-- [ ] Chain fallback still applies when no candidate qualifies.
-- [ ] All 10 canonical roles resolve to a real model at tiers 1–4 against the live registry.
-- [ ] `apply-model-config.sh` against a config with no `.agent` writes nothing and exits non-zero with an explanation; against the real config it patches only existing agents.
-- [ ] A degraded `daily-check` run surfaces at least one line on the user's stderr.
-- [ ] `tests/selection.sh` passes; `bash -n` clean on every touched script; `jq empty` clean on the registry.
+- [x] A tier-2 model with a larger `output_limit` than a tier-1 model is selected when the ceiling allows it (tier is a filter, not a ranking key).
+- [x] With a fixture where one model has the larger context and another the larger output, canonical role `orchestrator` resolves to the context model and every other role resolves to the output model.
+- [x] Two models identical on output and context: the one listing the role in `best_for` wins; with neither listing it, the lower tier wins, then the lower id.
+- [x] Role floors still exclude below-floor models even when `best_for` matches; `review` still requires 128000.
+- [x] Missing `selection_rules.thresholds` still yields `NONE` (fail-closed preserved).
+- [x] Chain fallback still applies when no candidate qualifies.
+- [x] All 10 canonical roles resolve to a real model at tiers 1–4 against the live registry.
+- [x] `apply-model-config.sh` against a config with no `.agent` writes nothing and exits non-zero with an explanation; against the real config it patches only existing agents.
+- [x] A degraded `daily-check` run surfaces at least one line on the user's stderr.
+- [x] `tests/selection.sh` passes; `bash -n` clean on every touched script; `jq empty` clean on the registry.
 
 ## Progress
 
 - [x] Feature doc created before the first source write.
-- [ ] T1 selection order + registry rule + tests (delegated writer)
-- [ ] T2 apply-model-config guard (delegated writer)
-- [ ] T3 degradation visibility + stamp-after-apply (delegated writer)
-- [ ] T4 vendored plugin + install guidance + doc corrections (delegated writer)
-- [ ] T5 check-upstream loud failure (delegated writer)
-- [ ] T6 work-unit commits + RDD assess per unit
+- [x] T1 selection order + registry rule + tests — `01ba50b` (docs) + `1fe538f`.
+- [x] T2 apply-model-config guard — `2c11fe6`.
+- [x] T3 degradation visibility + stamp-after-apply — `2c11fe6`.
+- [x] T4 vendored plugin + install guidance + doc corrections — `2c11fe6`.
+- [x] T5 check-upstream loud failure — `2c11fe6`.
+- [x] T6 work-unit commits.
+
+## Verification (observed)
+
+- `bash -n` clean on all four touched scripts; `jq empty` clean on the registry.
+- `bash tests/selection.sh` → **15/15 green**.
+- **The suite discriminates.** Reverting only the `sort_by` to the pre-change key makes 4 cases red (`tier_is_a_filter_not_a_ranking_key`, `orchestrator_prefers_context`, `context_first_roles_is_data`, `role_alias_is_resolved`) and exits non-zero. The gate is not tautological.
+- **Behavior-neutral on this machine:** 0 of 40 role×tier combinations changed. `space-bunny-free` is a Pareto dominator (output 524288, context 1048576, lowest tier), so it still wins the primary key everywhere. The new ordering is a latent-correctness change, not an immediate reassignment.
+- T2 fixture, no-agents case: exit 1, `opencode.jsonc` md5 byte-identical before and after, no backup written, no temp leaked, top-level model untouched.
+- T2 fixture, 18-agents case: exit 0, all 18 patched, agent `description` fields preserved, `jq empty` clean.
+- T2 partial case: unrelated agent key left untouched at its original model; missing agents reported by name.
+- S3: with a stubbed `daily-check.sh` the degraded advisory appears on the hook's stderr **and** in `results/session-start.log`, while stdout stays silent. Hook exit 0 in every case — a terminal start is never blocked.
+- S5: stamp written only when check AND apply succeed; absent when either fails.
+- Vendored `plugins/model-check.ts` loads as a module and returns `{}`; the machine copy at `~/.config/opencode/plugins/model-check.ts` still carries the absolute path and loads identically.
+
+### Not verified
+
+- End-to-end with a live OpenCode startup against the vendored plugin and the README install one-liner — needs a real restart.
+- `check-upstream.sh`'s network checks (offline by design in this project).
+
+## Native review outcome — TERMINAL, escalated
+
+Lineage `review-54f64dcee1ac2a7e`, candidate range `2f8baf1..1fe538f` (T1 only). Assessed `high_risk` → consent `granted` → 4 lenses (risk, resilience, readability, reliability).
+
+`review-resilience` failed the capture transport twice (`opencode_task_output_empty` and `opencode_reviewer_result_refused`, both truncated reviewer payloads) and was admitted on the third launch; `review-readability` was admitted on its second. Those are transport failures, not review verdicts.
+
+The admitted R4 result escalated the transaction to `stop/native_stop_required` over one CRITICAL finding with `causal_disposition: unknown`:
+
+**`R4-REGISTRY-UNVERIFIED-NOW-DECIDES-ALL-AGENTS`** (`select-role-model.sh:110-114`, evidence_class `inferential`). Claim: making `output_limit`/`context_window` the primary keys hands the sole determinant of every agent's model to capability numbers that `daily-check.sh` deliberately never corrects — `selection_rules.limits_reverify` states existing-entry drift is advisory and never auto-corrected. One inflated or hand-edited `output_limit` would outrank the privacy-verified tier-1 anchor for every role, and the next refresh would reassign all agents. Under the old key order the same bad data could not outrank tier 1, so the blast radius grows from zero to every role. The finding also notes the new test gate does not catch it: `live_registry_resolves_every_role` only asserts a role resolves to something other than `NONE`, so a total reassignment passes the suite green.
+
+**Maintainer assessment (parent, not native):** the risk is real but the causal framing is imprecise, and `unknown` causality is why it could not be adjudicated.
+
+- Capability numbers were already inputs to the old sort (second and third keys) and already unverified by policy — the "never auto-correct" rule is base, not introduced here. What changed is which field is load-bearing.
+- The old ordering did not protect that data; it *masked* it. `space-bunny-free` is a Pareto dominator, so the tier-1 key happened to coincide with the most capable entry. Remove it and the old sort picks the same inflated number. That coincidence is the same accident S1 identified.
+- **One part of the finding is a real, accepted defect:** the live-registry test asserts only "not `NONE`", so a wholesale reassignment passes green. Closing that needs a golden expected-assignment fixture — a new change, not a correction, and the transaction is already terminal.
+
+Terminal state: no correction, no acknowledgement, no burn. Per the lifecycle contract a `stop` ends the transition and never approves delivery. RDD was switched off at **clone scope** afterwards (`gentle-ai review mode disable --scope clone`) so the remaining work could proceed without repeated prompts; the global setting is untouched and stays `on`. T2–T5 shipped under that setting with the functional gate above.
 
 ## Delivery
 
