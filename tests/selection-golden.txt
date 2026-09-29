@@ -1,0 +1,74 @@
+# tests/selection-golden.txt — expected live role x tier assignment table.
+#
+# WHAT THIS IS
+#   The expected output of select-role-model.sh against the CURRENT
+#   privacy-tier-registry.json, for all 10 canonical roles at tiers 1-4
+#   (40 combinations). It is a deliberate checkpoint: these are the models that
+#   actually get written into the user's agent config on the next refresh.
+#
+# FORMAT
+#   One line per combination: "<tier> <role> <model-id>"
+#   Sorted by tier ascending, then by role in $CANONICAL_ROLES order
+#   (orchestrator explore research design spec tasks apply verify archive review).
+#   Lines starting with '#' are comments; the harness ignores them.
+#
+# WHAT A DIFF MEANS
+#   A mismatch means the selector now assigns a DIFFERENT model than the
+#   assignment this project has been operating under. Any drift is a drift:
+#   there is no tolerance, no "update if better" heuristic, and a normal run
+#   never auto-heals. One changed line can rewrite the model behind an agent.
+#
+#   The usual cause is legitimate. daily-check.sh ADDS newly published free
+#   models to privacy-tier-registry.json, and by policy it never corrects drift
+#   in EXISTING entries (selection_rules.limits_reverify). So this file is
+#   EXPECTED TO GO STALE whenever the catalog changes, and regenerating it is a
+#   CONSCIOUS act, never an automatic one:
+#     1. read the diff and decide whether the new assignment is actually
+#        correct — output headroom, context window, privacy tier;
+#     2. only then run:
+#          bash tests/selection.sh --update-golden
+#
+#   If a line changed and you did NOT expect a catalog change, suspect a
+#   hand-edited or inflated output_limit / context_window in the registry:
+#   those numbers decide every role now, and nothing corrects them for you.
+
+1 orchestrator opencode/space-bunny-free
+1 explore opencode/space-bunny-free
+1 research opencode/space-bunny-free
+1 design opencode/space-bunny-free
+1 spec opencode/space-bunny-free
+1 tasks opencode/space-bunny-free
+1 apply opencode/space-bunny-free
+1 verify opencode/space-bunny-free
+1 archive opencode/space-bunny-free
+1 review opencode/space-bunny-free
+2 orchestrator opencode/space-bunny-free
+2 explore opencode/space-bunny-free
+2 research opencode/space-bunny-free
+2 design opencode/space-bunny-free
+2 spec opencode/space-bunny-free
+2 tasks opencode/space-bunny-free
+2 apply opencode/space-bunny-free
+2 verify opencode/space-bunny-free
+2 archive opencode/space-bunny-free
+2 review opencode/space-bunny-free
+3 orchestrator opencode/space-bunny-free
+3 explore opencode/space-bunny-free
+3 research opencode/space-bunny-free
+3 design opencode/space-bunny-free
+3 spec opencode/space-bunny-free
+3 tasks opencode/space-bunny-free
+3 apply opencode/space-bunny-free
+3 verify opencode/space-bunny-free
+3 archive opencode/space-bunny-free
+3 review opencode/space-bunny-free
+4 orchestrator opencode/space-bunny-free
+4 explore opencode/space-bunny-free
+4 research opencode/space-bunny-free
+4 design opencode/space-bunny-free
+4 spec opencode/space-bunny-free
+4 tasks opencode/space-bunny-free
+4 apply opencode/space-bunny-free
+4 verify opencode/space-bunny-free
+4 archive opencode/space-bunny-free
+4 review opencode/space-bunny-free

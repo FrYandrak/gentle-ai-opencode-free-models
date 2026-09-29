@@ -9,13 +9,22 @@
 # So each fixture gets a throwaway directory containing a COPY of the library
 # plus the fixture registry, and the copy is sourced. The library itself needs
 # no env-var or path override — it stays untouched.
+#
+# Usage:
+#   bash tests/selection.sh                  run every case
+#   bash tests/selection.sh --update-golden  regenerate selection-golden.txt
+#
+# SELECT_TEST_REGISTRY overrides the registry the LIVE cases read. It exists so
+# the golden gate can be proven to catch drift against a deliberately modified
+# COPY of the registry, without editing the repo file. Unset in normal runs.
 
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 LIB_SOURCE="$REPO_DIR/select-role-model.sh"
-LIVE_REGISTRY="$REPO_DIR/privacy-tier-registry.json"
+LIVE_REGISTRY="${SELECT_TEST_REGISTRY:-$REPO_DIR/privacy-tier-registry.json}"
+GOLDEN_FILE="$SCRIPT_DIR/selection-golden.txt"
 
 CANONICAL_ROLES="orchestrator explore research design spec tasks apply verify archive review"
 
@@ -50,6 +59,12 @@ expect_not() {
         CASE_FAILURES="${CASE_FAILURES}         - $1: expected anything but [$2]
 "
     fi
+}
+
+# fail_line TEXT — record one indented failure bullet.
+fail_line() {
+    CASE_FAILURES="${CASE_FAILURES}         - $1
+"
 }
 
 end() {
@@ -104,6 +119,157 @@ legacy_pick() {
                  ctx: ((.value.context_window // 0) | tonumber? // 0)})
         | sort_by([.t, (-.ol), (-.ctx), .id])[0].id
     '
+}
+
+# --- golden assignment table --------------------------------------------------
+
+# live_assignment_table — the 10 canonical roles × tiers 1-4, resolved against
+# the live registry, emitted in golden file format and canonical order.
+live_assignment_table() {
+    local tier role
+    for tier in 1 2 3 4; do
+        for role in $CANONICAL_ROLES; do
+            select_live "$role" "$tier"
+            printf '%s %s %s\n' "$tier" "$role" "$SEL_OUT"
+        done
+    done
+}
+
+# golden_body — the assignment lines of the golden file, comments stripped.
+golden_body() {
+    grep -v -e '^[[:space:]]*#' -e '^[[:space:]]*$' "$GOLDEN_FILE" 2>/dev/null
+}
+
+# golden_header — the `#` comment lines, verbatim, to be preserved on rewrite.
+golden_header() {
+    grep '^[[:space:]]*#' "$GOLDEN_FILE" 2>/dev/null
+}
+
+# default_golden_header — used only when the golden file does not exist yet.
+default_golden_header() {
+    cat <<'HEADER'
+# tests/selection-golden.txt — expected live role x tier assignment table.
+#
+# WHAT THIS IS
+#   The expected output of select-role-model.sh against the CURRENT
+#   privacy-tier-registry.json, for all 10 canonical roles at tiers 1-4
+#   (40 combinations). It is a deliberate checkpoint: these are the models that
+#   actually get written into the user's agent config on the next refresh.
+#
+# FORMAT
+#   One line per combination: "<tier> <role> <model-id>"
+#   Sorted by tier ascending, then by role in $CANONICAL_ROLES order
+#   (orchestrator explore research design spec tasks apply verify archive review).
+#   Lines starting with '#' are comments; the harness ignores them.
+#
+# WHAT A DIFF MEANS
+#   A mismatch means the selector now assigns a DIFFERENT model than the
+#   assignment this project has been operating under. Any drift is a drift:
+#   there is no tolerance, no "update if better" heuristic, and a normal run
+#   never auto-heals. One changed line can rewrite the model behind an agent.
+#
+#   The usual cause is legitimate. daily-check.sh ADDS newly published free
+#   models to privacy-tier-registry.json, and by policy it never corrects drift
+#   in EXISTING entries (selection_rules.limits_reverify). So this file is
+#   EXPECTED TO GO STALE whenever the catalog changes, and regenerating it is a
+#   CONSCIOUS act, never an automatic one:
+#     1. read the diff and decide whether the new assignment is actually
+#        correct — output headroom, context window, privacy tier;
+#     2. only then run:
+#          bash tests/selection.sh --update-golden
+#
+#   If a line changed and you did NOT expect a catalog change, suspect a
+#   hand-edited or inflated output_limit / context_window in the registry:
+#   those numbers decide every role now, and nothing corrects them for you.
+HEADER
+}
+
+# report_golden_drift EXPECTED_FILE ACTUAL_FILE
+# Prints one line per differing combination — "tier T role R: expected [X],
+# actual [Y]" — then a final machine-readable
+# "__SUMMARY__ <changed_combinations> <affected_roles>" line.
+# Walks ACTUAL in file order, then reports golden entries that ACTUAL never
+# produced, so the output is deterministic rather than hash-ordered.
+report_golden_drift() {
+    awk '
+        FNR == NR { ek[++ec] = $0; em[$1 " " $2] = $3; next }
+                 { ak[++ac] = $0; am[$1 " " $2] = $3 }
+        END {
+            changed = 0; affected = ""; n = 0
+            for (i = 1; i <= ac; i++) {
+                split(ak[i], f, " "); k = f[1] " " f[2]
+                if (!(k in em)) {
+                    printf "tier %s role %s: expected [no golden entry], actual [%s]\n", f[1], f[2], am[k]
+                    changed++; if (!(f[2] in rset)) { rset[f[2]] = 1; affected = affected (affected == "" ? "" : ",") f[2] }
+                } else if (em[k] != am[k]) {
+                    printf "tier %s role %s: expected [%s], actual [%s]\n", f[1], f[2], em[k], am[k]
+                    changed++; if (!(f[2] in rset)) { rset[f[2]] = 1; affected = affected (affected == "" ? "" : ",") f[2] }
+                }
+            }
+            for (i = 1; i <= ec; i++) {
+                split(ek[i], f, " "); k = f[1] " " f[2]
+                if (!(k in am)) {
+                    printf "tier %s role %s: expected [%s], actual [not produced]\n", f[1], f[2], em[k]
+                    changed++; if (!(f[2] in rset)) { rset[f[2]] = 1; affected = affected (affected == "" ? "" : ",") f[2] }
+                }
+            }
+            n = 0
+            if (affected != "") n = split(affected, a, ",")
+            print "__SUMMARY__ " changed " " n
+        }
+    ' "$1" "$2"
+}
+
+# drift_changed_count EXPECTED_FILE ACTUAL_FILE — first field of the summary.
+drift_changed_count() {
+    report_golden_drift "$1" "$2" | awk '/^__SUMMARY__/ { print $2; exit }'
+}
+
+# drift_affected_roles EXPECTED_FILE ACTUAL_FILE — second field of the summary.
+drift_affected_roles() {
+    report_golden_drift "$1" "$2" | awk '/^__SUMMARY__/ { print $3; exit }'
+}
+
+# write_golden ACTUAL_TEXT — header (preserved verbatim) + body, written
+# atomically so an interrupted run cannot leave a truncated golden behind.
+write_golden() {
+    local tmp
+    tmp="$GOLDEN_FILE.tmp.$$"
+    {
+        if [ -f "$GOLDEN_FILE" ]; then golden_header; else default_golden_header; fi
+        echo
+        printf '%s\n' "$1"
+    } > "$tmp" || { rm -f "$tmp"; return 1; }
+    mv "$tmp" "$GOLDEN_FILE" || { rm -f "$tmp"; return 1; }
+    return 0
+}
+
+# update_golden — the ONLY supported way to change the golden. Prints how many
+# lines changed and exits 0. Never invoked during a normal run.
+update_golden() {
+    local actual body_tmp old_tmp="" changed
+    actual="$(live_assignment_table)"
+    body_tmp="$(mktemp)"
+    printf '%s\n' "$actual" > "$body_tmp"
+
+    if [ -f "$GOLDEN_FILE" ]; then
+        old_tmp="$(mktemp)"
+        golden_body > "$old_tmp"
+        changed="$(drift_changed_count "$old_tmp" "$body_tmp")"
+    else
+        changed="$(grep -c '' "$body_tmp")"
+    fi
+
+    if ! write_golden "$actual"; then
+        echo "FAIL: could not write $GOLDEN_FILE" >&2
+        rm -f "$body_tmp" "$old_tmp"
+        return 1
+    fi
+
+    printf 'updated %s — %s of %s lines changed (header comments preserved)\n' \
+        "${GOLDEN_FILE#"$REPO_DIR"/}" "$changed" "$(grep -c '' "$body_tmp")"
+    rm -f "$body_tmp" "$old_tmp"
+    return 0
 }
 
 # --- fixtures ----------------------------------------------------------------
@@ -237,6 +403,26 @@ REG_ALIAS="{
 
 # --- cases -------------------------------------------------------------------
 
+case "${1:-}" in
+    "")
+        ;;
+    --update-golden)
+        # Refuse to write the golden from an overridden registry: that path
+        # exists to prove drift detection, and baking its output into the
+        # committed file is exactly the silent reassignment this gate forbids.
+        if [ -n "${SELECT_TEST_REGISTRY:-}" ]; then
+            echo "refusing to update the golden from SELECT_TEST_REGISTRY=$SELECT_TEST_REGISTRY — unset it to regenerate from the real registry" >&2
+            exit 2
+        fi
+        update_golden
+        exit $?
+        ;;
+    *)
+        echo "usage: bash tests/selection.sh [--update-golden]" >&2
+        exit 2
+        ;;
+esac
+
 echo "# tests/selection.sh — select_role_model functional gate"
 echo
 
@@ -327,26 +513,57 @@ expect_eq "canonical role gives the same answer as its alias" "opencode/ctx-heav
 end
 
 begin "live_registry_resolves_every_role"
-for tier in 1 2 3 4; do
-    for role in $CANONICAL_ROLES; do
-        select_live "$role" "$tier"
-        if [ "$SEL_OUT" = "NONE" ] || [ -z "$SEL_OUT" ]; then
-            CASE_FAILURES="${CASE_FAILURES}         - $role @ tier $tier resolved to [$SEL_OUT]
-"
+# The assertion is a DIFF against tests/selection-golden.txt, not "resolves to
+# something". A mass reassignment — the failure mode a bare non-NONE check
+# cannot see, because the selector happily returns a different valid model —
+# is the thing this case exists to catch.
+LIVE_TABLE="$(live_assignment_table)"
+ACTUAL_TMP="$(mktemp)"
+printf '%s\n' "$LIVE_TABLE" > "$ACTUAL_TMP"
+TOTAL_COMBOS="$(grep -c '' "$ACTUAL_TMP")"
+
+if [ ! -f "$GOLDEN_FILE" ]; then
+    fail_line "golden file tests/selection-golden.txt does not exist — generate it with: bash tests/selection.sh --update-golden"
+else
+    GOLDEN_TMP="$(mktemp)"
+    golden_body > "$GOLDEN_TMP"
+    CHANGED="$(drift_changed_count "$GOLDEN_TMP" "$ACTUAL_TMP")"
+    AFFECTED="$(drift_affected_roles "$GOLDEN_TMP" "$ACTUAL_TMP")"
+
+    if [ "$CHANGED" -eq 0 ]; then
+        # Every value matches. A golden that is not exactly one line per
+        # combination was hand-weakened (a dropped row, a duplicated one), so
+        # that is drift too even though no value differs.
+        GOLDEN_LINES="$(grep -c '' "$GOLDEN_TMP")"
+        if [ "$GOLDEN_LINES" -ne "$TOTAL_COMBOS" ]; then
+            fail_line "golden lists $GOLDEN_LINES combinations, live run produced $TOTAL_COMBOS — the golden is not a complete 1-line-per-combination table"
         fi
-    done
-done
+    else
+        fail_line "live assignments drifted from tests/selection-golden.txt — $CHANGED of $TOTAL_COMBOS combinations changed ($AFFECTED of 10 roles affected). If this is a legitimate catalog change, review the diff, then regenerate with: bash tests/selection.sh --update-golden"
+        # Herestring, not a pipe: a `cmd | while read` loop runs in a subshell
+        # and would throw away everything fail_line appends to CASE_FAILURES.
+        DRIFT_TEXT="$(report_golden_drift "$GOLDEN_TMP" "$ACTUAL_TMP" | grep -v '^__SUMMARY__')"
+        while IFS= read -r line; do
+            [ -n "$line" ] || continue
+            fail_line "$line"
+        done <<< "$DRIFT_TEXT"
+        fail_line "a change you did not expect usually means a hand-edited or inflated output_limit / context_window in privacy-tier-registry.json (selection_rules.limits_reverify: existing-entry drift is never auto-corrected)"
+    fi
+    rm -f "$GOLDEN_TMP"
+fi
+rm -f "$ACTUAL_TMP"
+
 # Intent note, not a coincidence pin: the orchestrator flip is a rule, and on
 # THIS registry it happens to be a no-op because space-bunny-free dominates
 # both capability axes. Case orchestrator_prefers_context is the fixture that
-# would differ, and it is asserted above.
-select_live orchestrator 2
-LIVE_ORCH="$SEL_OUT"
-select_live apply 2
-if [ "$LIVE_ORCH" = "$SEL_OUT" ]; then
+# would differ, and it is asserted above. Read from the same table the golden
+# is diffed against, so the note and the assertion can never disagree.
+LIVE_ORCH="$(printf '%s\n' "$LIVE_TABLE" | awk '$1 == 2 && $2 == "orchestrator" { print $3 }')"
+LIVE_APPLY="$(printf '%s\n' "$LIVE_TABLE" | awk '$1 == 2 && $2 == "apply" { print $3 }')"
+if [ "$LIVE_ORCH" = "$LIVE_APPLY" ]; then
     note "on the live registry context_first_roles is currently a no-op: orchestrator and apply both resolve to $LIVE_ORCH (single Pareto-dominant model)"
 else
-    note "on the live registry orchestrator ($LIVE_ORCH) already differs from apply ($SEL_OUT)"
+    note "on the live registry orchestrator ($LIVE_ORCH) already differs from apply ($LIVE_APPLY)"
 fi
 end
 
