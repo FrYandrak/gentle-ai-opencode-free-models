@@ -23,7 +23,6 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 LIB_SOURCE="$REPO_DIR/select-role-model.sh"
-LIVE_REGISTRY="${SELECT_TEST_REGISTRY:-$REPO_DIR/privacy-tier-registry.json}"
 GOLDEN_FILE="$SCRIPT_DIR/selection-golden.txt"
 
 CANONICAL_ROLES="orchestrator explore research design spec tasks apply verify archive review"
@@ -94,12 +93,17 @@ select_with() {
     rm -rf "$dir"
 }
 
-# select_live ROLE MAX_TIER — same, but with the real repo registry.
+# select_live ROLE MAX_TIER — same, but with the real repo registry (or the
+# SELECT_TEST_REGISTRY override, when a case scopes one).
+#
+# The seam is resolved at CALL time, not at script start, so a case can set
+# SELECT_TEST_REGISTRY, prove something against a modified copy, and restore
+# the real registry for every case that runs after it.
 select_live() {
     local dir
     dir="$(mktemp -d)"
     cp "$LIB_SOURCE" "$dir/select-role-model.sh"
-    cp "$LIVE_REGISTRY" "$dir/privacy-tier-registry.json"
+    cp "${SELECT_TEST_REGISTRY:-$REPO_DIR/privacy-tier-registry.json}" "$dir/privacy-tier-registry.json"
     SEL_OUT="$( cd "$dir" && source ./select-role-model.sh \
         && select_role_model "$1" "$2" 2>/dev/null )"
     SEL_ERR=""
@@ -133,6 +137,18 @@ live_assignment_table() {
             printf '%s %s %s\n' "$tier" "$role" "$SEL_OUT"
         done
     done
+}
+
+# unresolvable_combinations ACTUAL_FILE
+# Prints one line per "<tier> <role>" row whose third field is NONE or empty.
+# A golden records assignments, never failures: baking an unresolvable row into
+# the committed baseline leaves the suite green and pins the NONE into the next
+# agent-config refresh. Both the live case and update_golden consult this, so
+# the precondition cannot be bypassed by regenerating the golden.
+unresolvable_combinations() {
+    awk '$3 == "" || $3 == "NONE" {
+             printf "tier %s role %s resolves to [%s]\n", $1, $2, $3; n++ }
+         END { exit (n > 0) ? 0 : 1 }' "$1"
 }
 
 # golden_body — the assignment lines of the golden file, comments stripped.
@@ -247,10 +263,25 @@ write_golden() {
 # update_golden — the ONLY supported way to change the golden. Prints how many
 # lines changed and exits 0. Never invoked during a normal run.
 update_golden() {
-    local actual body_tmp old_tmp="" changed
+    local actual body_tmp old_tmp="" changed unresolvable
     actual="$(live_assignment_table)"
     body_tmp="$(mktemp)"
     printf '%s\n' "$actual" > "$body_tmp"
+
+    # Validity precondition. Refuse to write a baseline that records a
+    # combination the selector cannot resolve: doing so launders a broken
+    # registry into an approved checkpoint and leaves the suite green.
+    unresolvable="$(unresolvable_combinations "$body_tmp")"
+    if [ -n "$unresolvable" ]; then
+        printf 'refusing to update %s — %s of %s combinations did not resolve to a real model:\n' \
+            "${GOLDEN_FILE#"$REPO_DIR"/}" \
+            "$(printf '%s\n' "$unresolvable" | grep -c '')" \
+            "$(grep -c '' "$body_tmp")" >&2
+        printf '%s\n' "$unresolvable" | sed 's/^/  /' >&2
+        echo "a golden must never record NONE: fix privacy-tier-registry.json first, then regenerate" >&2
+        rm -f "$body_tmp"
+        return 1
+    fi
 
     if [ -f "$GOLDEN_FILE" ]; then
         old_tmp="$(mktemp)"
@@ -513,18 +544,35 @@ expect_eq "canonical role gives the same answer as its alias" "opencode/ctx-heav
 end
 
 begin "live_registry_resolves_every_role"
-# The assertion is a DIFF against tests/selection-golden.txt, not "resolves to
-# something". A mass reassignment — the failure mode a bare non-NONE check
-# cannot see, because the selector happily returns a different valid model —
-# is the thing this case exists to catch.
+# Two independent assertions, in this order. (1) every combination resolves to a
+# real model; (2) the assignments match tests/selection-golden.txt exactly. (2)
+# alone is a DIFF, not "resolves to something", so a mass reassignment — the
+# failure mode a bare non-NONE check cannot see, because the selector happily
+# returns a different valid model — is caught. (1) alone would pass a wholesale
+# reassignment, which is why the case has both.
 LIVE_TABLE="$(live_assignment_table)"
 ACTUAL_TMP="$(mktemp)"
 printf '%s\n' "$LIVE_TABLE" > "$ACTUAL_TMP"
 TOTAL_COMBOS="$(grep -c '' "$ACTUAL_TMP")"
 
+# (1) VALIDITY, before any diff. Every one of the 40 combinations must resolve
+# to a real model id. This runs ahead of the golden comparison and is
+# independent of it, so a golden that already recorded NONE for a key cannot
+# make a broken registry look approved — and regenerating the golden cannot
+# remove this check, because update_golden refuses to write one that fails it.
+UNRESOLVABLE="$(unresolvable_combinations "$ACTUAL_TMP")"
+if [ -n "$UNRESOLVABLE" ]; then
+    fail_line "$(printf '%s\n' "$UNRESOLVABLE" | grep -c '') of $TOTAL_COMBOS combinations did not resolve to a real model (NONE or empty id). A golden must never record these: the selector cannot assign that role today, and the broken registry has to be fixed, not checkpointed"
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        fail_line "unresolvable: $line"
+    done <<< "$UNRESOLVABLE"
+fi
+
 if [ ! -f "$GOLDEN_FILE" ]; then
     fail_line "golden file tests/selection-golden.txt does not exist — generate it with: bash tests/selection.sh --update-golden"
 else
+    # (2) DIFF against the golden.
     GOLDEN_TMP="$(mktemp)"
     golden_body > "$GOLDEN_TMP"
     CHANGED="$(drift_changed_count "$GOLDEN_TMP" "$ACTUAL_TMP")"
@@ -567,7 +615,68 @@ else
 fi
 end
 
+begin "golden_gate_detects_drift"
+# Proves the golden gate can FAIL. Every other case in this file can only pass,
+# so without this one a comparison that quietly ignored its third field — or
+# ignored the file entirely — would stay green forever. The gate is the whole
+# point of the golden file, so its ability to reject is asserted, not assumed.
+#
+# The override is SCOPED: the previous SELECT_TEST_REGISTRY is saved and
+# restored (or unset) below, and the temp dir is removed on every path, so the
+# live cases that run after this one still read the real repo registry.
+DRIFT_DIR="$(mktemp -d)"
+cp "$REPO_DIR/privacy-tier-registry.json" "$DRIFT_DIR/registry.json"
+# Reassign for real, on a COPY: pick a model that is NOT the current winner and
+# push BOTH capability axes strictly above the incumbent's, so the live selector
+# provably returns a different id. The "<tier> <role>" keys are untouched —
+# only the values move, which is what makes the value-level assertion below
+# meaningful. Incumbent: opencode/space-bunny-free, output 524288, context 1048576.
+BUMPED_REG="$DRIFT_DIR/registry.json"
+if ! jq --argjson ol 600000 --argjson ctx 2000000 \
+        '.models["opencode/longcat-2.5-preview-free"]
+         |= (.output_limit = $ol | .context_window = $ctx)' \
+        "$DRIFT_DIR/registry.json" > "$DRIFT_DIR/bumped.json"; then
+    fail_line "could not build the drifted registry copy — cannot prove the gate fails"
+else
+    BUMPED_REG="$DRIFT_DIR/bumped.json"
+fi
+
+SAVED_TEST_REGISTRY="${SELECT_TEST_REGISTRY-__unset__}"
+SELECT_TEST_REGISTRY="$BUMPED_REG"
+
+DRIFT_TABLE="$(live_assignment_table)"
+DRIFT_TMP="$(mktemp)"
+printf '%s\n' "$DRIFT_TABLE" > "$DRIFT_TMP"
+GOLDEN_REF="$(mktemp)"
+golden_body > "$GOLDEN_REF"
+
+DRIFT_TOTAL="$(grep -c '' "$DRIFT_TMP")"
+DRIFT_CHANGED="$(drift_changed_count "$GOLDEN_REF" "$DRIFT_TMP")"
+expect_not "inflating a non-winner's limits leaves the table identical to the golden" "0" "$DRIFT_CHANGED"
+
+# Value-level discrimination. The committed golden holds ONE model id for all
+# 40 rows, so a gate that compared only the "<tier> <role>" key would also
+# report zero drift. Counting rows whose third field differs from the golden's
+# third field for the SAME key is what proves the comparison reads that field.
+DRIFT_VALUE_DIFFS="$(awk 'NR == FNR { g[$1 " " $2] = $3; next }
+                              ($1 " " $2) in g && g[$1 " " $2] != $3 { n++ }
+                          END { print n + 0 }' "$GOLDEN_REF" "$DRIFT_TMP")"
+expect_not "no combination resolves to a model id different from the golden value" "0" "$DRIFT_VALUE_DIFFS"
+note "golden gate proven able to fail: $DRIFT_CHANGED of $DRIFT_TOTAL combinations drifted, $DRIFT_VALUE_DIFFS of them differ in the model id itself (third field, not just the key)"
+
+# Restore the seam before end(), so every later case sees the real registry.
+if [ "$SAVED_TEST_REGISTRY" = "__unset__" ]; then
+    unset SELECT_TEST_REGISTRY
+else
+    SELECT_TEST_REGISTRY="$SAVED_TEST_REGISTRY"
+fi
+rm -f "$DRIFT_TMP" "$GOLDEN_REF"
+rm -rf "$DRIFT_DIR"
+end
+
 begin "deterministic_across_runs"
+# Runs after golden_gate_detects_drift on purpose: it reads the live registry,
+# so it is the first thing that notices if that case leaked its override.
 select_live orchestrator 3
 FIRST="$SEL_OUT"
 select_live orchestrator 3
